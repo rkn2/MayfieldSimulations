@@ -7,6 +7,10 @@ df = pd.read_csv('QuadState_Tornado_DataInputv2.csv', delimiter=',', encoding='l
 #
 ## REMOVING COLUMNS
 
+#drop any row where degree_of_damage_u is blank
+df = df.dropna(subset=['degree_of_damage_u'])
+df = df.reset_index(drop=True)
+
 ## VARIATION ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Calculate the variation for each column (you can use other methods like standard deviation)
 variations = df.nunique()
@@ -41,13 +45,16 @@ df = df.drop(columns=columns_to_drop)
 additional_columns_to_remove = ['completed_by', 'damage_status', 'ref# (DELETE LATER)',
                                 'complete_address', 'building_name_listing','building_name_current', 'notes', 'tornado_name',
                                 'tornado_EF', 'tornado_start_lat', 'tornado_start_long','tornado_end_lat', 'tornado_end_long',
-                                'national_register_listing_year']
+                                'national_register_listing_year', 'latitude', 'longitude', 'town','located_in_historic_district',
+                                'hazards_present_u']
 
 for col in additional_columns_to_remove:
     if col in df.columns:
         df = df.drop(col, axis=1)
     else:
         print(f"Column '{col}' not found in DataFrame.")
+
+
 
 ## DUPLICATES BC UPDATED PROVIDED ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 columns_removed = []
@@ -91,6 +98,8 @@ for col in df.columns:
     # Replace blanks and NaNs with 'un' in string columns
     df[col] = df[col].fillna('un').replace('', 'un', regex=False)
 
+# add random column
+df['random_feature'] = np.random.rand(len(df))
 
 # Save the DataFrame to a new CSV file
 df.to_csv('cleaned_data.csv', index=False) # index=False prevents writing row indices

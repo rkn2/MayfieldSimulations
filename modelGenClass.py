@@ -2,9 +2,6 @@
 # pip install mljar-supervised
 # make sure you have brew installed lightgbm not conda
 
-# import warnings
-# warnings.filterwarnings("ignore", message="numpy.dtype size changed")
-# warnings.filterwarnings("ignore", message="numpy.ufunc size changed")
 
 import pandas as pd
 from sklearn.model_selection import train_test_split
@@ -45,17 +42,19 @@ y_train.value_counts().plot(kind='bar',color='green')
 y_test.value_counts().plot(kind='bar', color='blue')
 
 automl = AutoML(
-    results_path='2025_4_11_test',
-    ml_task='regression',
+    results_path='2025_4_11_test_class_int_noHazardsPresent',
+    ml_task='multiclass_classification',
    #algorithms=["CatBoost", "Xgboost", "LightGBM", "Random Forest", "Linear", "Decision Tree"],
     explain_level= 2,
     hill_climbing_steps=2,
     top_models_to_improve=2,
-    golden_features=True, #on / off when needed
-    features_selection=True,
-    stack_models=True,
-    train_ensemble=True,
-    mix_encoding=True,
+    golden_features=False, #on / off when needed
+    features_selection=False,
+    stack_models=False,
+    train_ensemble=False,
+    mix_encoding=False,
+    #eval_metric='rmse',
+    eval_metric='accuracy',
     validation_strategy={
         "validation_type": "kfold",
         "k_folds": 5,
