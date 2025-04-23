@@ -27,7 +27,7 @@ damage_columns = [col for col in df.columns if 'damage' in col.lower()]
 df = df.drop(columns=damage_columns)
 
 # Find columns containing "exist" (case-insensitive)
-exist_columns = [col for col in df.columns if 'status_u' in col.lower() or 'exist' in col.lower() or 'demolish' in col.lower()]
+exist_columns = [col for col in df.columns if 'status_u' in col.lower() or 'exist' in col.lower() or 'demolish' in col.lower() or 'failure' in col.lower() or 'after' in col.lower()]
 # Drop the identified columns
 df = df.drop(columns=exist_columns)
 

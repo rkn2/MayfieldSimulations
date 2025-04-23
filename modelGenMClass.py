@@ -27,7 +27,7 @@ damage_columns = [col for col in df.columns if 'damage' in col.lower()]
 df = df.drop(columns=damage_columns)
 
 # Find columns containing "exist" (case-insensitive)
-exist_columns = [col for col in df.columns if 'status_u' in col.lower() or 'exist' in col.lower() or 'demolish' in col.lower()]
+exist_columns = [col for col in df.columns if 'status_u' in col.lower() or 'exist' in col.lower() or 'demolish' in col.lower() or 'failure' in col.lower() or 'after' in col.lower()]
 # Drop the identified columns
 df = df.drop(columns=exist_columns)
 
@@ -42,6 +42,9 @@ X_train, X_test, y_train, y_test = train_test_split(X, y,test_size=0.2, random_s
 
 y_train.value_counts().plot(kind='bar',color='green')
 y_test.value_counts().plot(kind='bar', color='blue')
+
+results_path = f'automl_results_mclass_{timestamp}'
+
 automl = AutoML(
     results_path=results_path,
     ml_task='multiclass_classification',
