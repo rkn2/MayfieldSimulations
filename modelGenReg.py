@@ -2,13 +2,15 @@
 # pip install mljar-supervised
 # make sure you have brew installed lightgbm not conda
 
-
-import pandas as pd
 from sklearn.model_selection import train_test_split
 from supervised.automl import AutoML
 import matplotlib.pyplot as plt
-
+from datetime import datetime
+import pandas as pd
 plt.interactive(True)
+
+# Generate a timestamp for the filename
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 # Load the cleaned dataset
 df = pd.read_csv('cleaned_data.csv')
@@ -41,8 +43,10 @@ X_train, X_test, y_train, y_test = train_test_split(X, y,test_size=0.2, random_s
 y_train.value_counts().plot(kind='bar',color='green')
 y_test.value_counts().plot(kind='bar', color='blue')
 
+results_path = f'automl_results_reg_{timestamp}'
+
 automl = AutoML(
-    results_path='2025_4_11_test_reg_int',
+    results_path=results_path,
     ml_task='regression',
    #algorithms=["CatBoost", "Xgboost", "LightGBM", "Random Forest", "Linear", "Decision Tree"],
     explain_level= 2,
@@ -53,7 +57,7 @@ automl = AutoML(
     stack_models=False,
     train_ensemble=False,
     mix_encoding=False,
-    eval_metric='rmse',
+    eval_metric='mae', # MAE is less affected by outliers and skewed distributions than RMSE
     #eval_metric='accuracy',
     validation_strategy={
         "validation_type": "kfold",

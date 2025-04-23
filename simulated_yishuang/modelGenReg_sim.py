@@ -52,7 +52,7 @@ y_train.value_counts().plot(kind='bar',color='green')
 y_test.value_counts().plot(kind='bar', color='blue')
 
 automl = AutoML(
-    results_path='2025_4_23_test_reg',
+    results_path='2025_4_23_test_reg-didntwork',
     ml_task='regression',
    #algorithms=["CatBoost", "Xgboost", "LightGBM", "Random Forest", "Linear", "Decision Tree"],
     explain_level= 2,
