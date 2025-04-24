@@ -18,7 +18,7 @@ df = pd.read_csv('cleaned_data.csv')
 ## SET UP X AND Y
 # what is my initial Y
 # degree_of_damage_u
-y = df['degree_of_damage_u']
+y = df['degree_of_damage_u'].astype(int)
 
 # what is my X
 # Find columns containing "damage" (case-insensitive)
@@ -38,10 +38,7 @@ df.to_csv('cleaned_data_no_damage.csv', index=False)
 X = pd.read_csv('cleaned_data_no_damage.csv')
 
 ## START MODELING
-X_train, X_test, y_train, y_test = train_test_split(X, y,test_size=0.2, random_state=42, stratify=y)
-
-y_train.value_counts().plot(kind='bar',color='green')
-y_test.value_counts().plot(kind='bar', color='blue')
+X_train, X_test, y_train, y_test = train_test_split(X, y,test_size=0.2, random_state=42, stratify=y.values.astype(int))
 
 results_path = f'automl_results_mclass_{timestamp}'
 
@@ -61,9 +58,9 @@ automl = AutoML(
     eval_metric='f1', # recommended for imbalanced datasets instead of accuracy
     validation_strategy={
         "validation_type": "kfold",
-        "k_folds": 5,
+        "k_folds": 3,
         "shuffle": True,
-        "stratify": True,
+        "stratify": False,
     }
 )
 automl.fit(X_train, y_train)

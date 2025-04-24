@@ -40,9 +40,6 @@ X = pd.read_csv('cleaned_data_no_damage.csv')
 ## START MODELING
 X_train, X_test, y_train, y_test = train_test_split(X, y,test_size=0.2, random_state=42, stratify=y)
 
-y_train.value_counts().plot(kind='bar',color='green')
-y_test.value_counts().plot(kind='bar', color='blue')
-
 results_path = f'automl_results_reg_{timestamp}'
 
 automl = AutoML(
@@ -61,7 +58,7 @@ automl = AutoML(
     #eval_metric='accuracy',
     validation_strategy={
         "validation_type": "kfold",
-        "k_folds": 5,
+        "k_folds": 3,
         "shuffle": True,
         "stratify": True,
     }
