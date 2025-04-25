@@ -13,7 +13,7 @@ plt.interactive(True)
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 # Load the cleaned dataset
-df = pd.read_csv('cleaned_data.csv')
+df = pd.read_csv('cleaned_data_latlong.csv')
 
 ## SET UP X AND Y
 # what is my initial Y
@@ -32,15 +32,15 @@ exist_columns = [col for col in df.columns if 'status_u' in col.lower() or 'exis
 df = df.drop(columns=exist_columns)
 
 # Save the modified DataFrame to a new CSV file
-df.to_csv('cleaned_data_no_damage.csv', index=False)
+df.to_csv('cleaned_data_no_damage_latlong.csv', index=False)
 
 # now load this in as X
-X = pd.read_csv('cleaned_data_no_damage.csv')
+X = pd.read_csv('cleaned_data_no_damage_latlong.csv')
 
 ## START MODELING
 X_train, X_test, y_train, y_test = train_test_split(X, y,test_size=0.2, random_state=42, stratify=y)
 
-results_path = f'automl_results_reg_{timestamp}'
+results_path = f'automl_results_reg_latlong_{timestamp}'
 
 automl = AutoML(
     results_path=results_path,

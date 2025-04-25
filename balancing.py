@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 # Load the cleaned dataset
-df = pd.read_csv('cleaned_data.csv')
+df = pd.read_csv('cleaned_data_latlong.csv')
 
 # Set up y
 y = df['degree_of_damage_u']

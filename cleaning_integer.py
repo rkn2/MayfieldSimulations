@@ -52,7 +52,7 @@ df = df.drop(columns=columns_to_drop)
 additional_columns_to_remove = ['completed_by', 'damage_status', 'ref# (DELETE LATER)',
                                 'complete_address', 'building_name_listing','building_name_current', 'notes', 'tornado_name',
                                 'tornado_EF', 'tornado_start_lat', 'tornado_start_long','tornado_end_lat', 'tornado_end_long',
-                                'national_register_listing_year', 'latitude', 'longitude', 'town','located_in_historic_district',
+                                'national_register_listing_year', 'town','located_in_historic_district',
                                 'hazards_present_u']
 
 for col in additional_columns_to_remove:
@@ -109,15 +109,15 @@ for col in df.columns:
 df['random_feature'] = np.random.rand(len(df))
 
 # Save the DataFrame to a new CSV file
-df.to_csv('cleaned_data.csv', index=False) # index=False prevents writing row indices
+df.to_csv('cleaned_data_latlong.csv', index=False) # index=False prevents writing row indices
 
 # Generate a timestamp for the filename
 #timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-filename = "feature_importance_results.csv"
+filename = "feature_importance_results_latlong.csv"
 
 
 # Load the cleaned dataset
-df = pd.read_csv('cleaned_data.csv')
+df = pd.read_csv('cleaned_data_latlong.csv')
 
 ## SET UP X AND Y
 # what is my initial Y
@@ -136,10 +136,10 @@ exist_columns = [col for col in df.columns if 'status_u' in col.lower() or 'exis
 df = df.drop(columns=exist_columns)
 
 # Save the modified DataFrame to a new CSV file
-df.to_csv('cleaned_data_no_damage.csv', index=False)
+df.to_csv('cleaned_data_no_damage_latlong.csv', index=False)
 
 # now load this in as X
-X = pd.read_csv('cleaned_data_no_damage.csv')
+X = pd.read_csv('cleaned_data_no_damage_latlong.csv')
 
 # CORR and Mutual info
 # Encode categorical variables
@@ -184,7 +184,7 @@ plt.tight_layout()
 
 
 # Save the figure
-figure_filename = 'feature_importance_results.png'
+figure_filename = 'feature_importance_results_latlong.png'
 plt.savefig(figure_filename, dpi=300, bbox_inches='tight')
 
 print(f"Figure has been saved to {figure_filename}")
