@@ -26,13 +26,15 @@ except ImportError:
 
 
 # --- Configuration ---
-RESULTS_CSV_PATH = 'model_benchmarking_results.csv'
-DATA_DIR = 'processed_ml_data' # Directory where processed data was saved
-TRAIN_X_PATH = f'{DATA_DIR}/X_train_processed.pkl'
-TRAIN_Y_PATH = f'{DATA_DIR}/y_train.pkl'
-TEST_X_PATH = f'{DATA_DIR}/X_test_processed.pkl'
-TEST_Y_PATH = f'{DATA_DIR}/y_test.pkl'
+DATA_DIR = 'processed_ml_data' # Directory where processed data was saved AND where results will be saved
+RESULTS_FILENAME = 'model_benchmarking_results.csv' # Just the filename for results
 
+# Construct the full paths using os.path.join
+TRAIN_X_PATH = os.path.join(DATA_DIR, 'X_train_processed.pkl')
+TRAIN_Y_PATH = os.path.join(DATA_DIR, 'y_train.pkl')
+TEST_X_PATH = os.path.join(DATA_DIR, 'X_test_processed.pkl')
+TEST_Y_PATH = os.path.join(DATA_DIR, 'y_test.pkl')
+FULL_RESULTS_CSV_PATH = os.path.join(DATA_DIR, RESULTS_FILENAME) # <<< Correct full path
 RANDOM_STATE = 42
 
 # Define models to test - use default parameters for initial benchmark
@@ -149,37 +151,32 @@ for model_name, model in MODELS_TO_TEST.items():
         results.append({"Model": model_name, "Fit Time (s)": np.nan, "MAE": np.nan, "MSE": np.nan, "R2": np.nan, "RMSE": np.nan, "Error": str(e)})
 
 
-# 3. Summarize Results
 print("\nStep 3: Summarizing results...")
 if not results:
     print("No models were successfully tested.")
     exit()
-
 results_df = pd.DataFrame(results)
-
-# Ensure primary metric column exists before sorting
 if PRIMARY_METRIC not in results_df.columns:
-     print(f"Error: Primary metric '{PRIMARY_METRIC}' not found in results columns: {results_df.columns.tolist()}")
-     print("Available metrics:", [col for col in results_df.columns if col not in ["Model", "Fit Time (s)", "Error"]])
+     print(f"Error: Primary metric '{PRIMARY_METRIC}' not found.")
      exit()
+results_df_sorted = results_df.sort_values(by=PRIMARY_METRIC, ascending=not HIGHER_IS_BETTER, na_position='last').copy()
 
-# Sort results (using the numeric data)
-results_df_sorted = results_df.sort_values(by=PRIMARY_METRIC, ascending=not HIGHER_IS_BETTER, na_position='last').copy() # Use copy to avoid SettingWithCopyWarning if modifying later
 
-# --- Save Results to CSV
-print(f"\nStep 3.5: Saving results summary to {RESULTS_CSV_PATH}...")
+# --- Save Results to CSV --- <<< CORRECTED SECTION
+print(f"\nStep 3.5: Saving results summary to {FULL_RESULTS_CSV_PATH}...")
 try:
-    # Ensure the directory exists if RESULTS_CSV_PATH includes one
-    output_dir = os.path.dirname(RESULTS_CSV_PATH)
-    if output_dir and not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-        print(f"  Created directory: {output_dir}")
+    # Ensure the target directory exists
+    # os.path.dirname(FULL_RESULTS_CSV_PATH) will correctly get DATA_DIR
+    target_dir = os.path.dirname(FULL_RESULTS_CSV_PATH)
+    if target_dir: # Check if it's not empty (it shouldn't be here)
+        os.makedirs(target_dir, exist_ok=True) # exist_ok=True prevents error if dir exists
+        print(f"  Ensured directory exists: {target_dir}")
 
-    # Save the sorted DataFrame with numeric values
-    results_df_sorted.to_csv(DATA_DIR+RESULTS_CSV_PATH, index=False, float_format='%.6f') # Save with good precision
-    print(f"  Successfully saved results to {RESULTS_CSV_PATH}")
+    # Save the sorted DataFrame using the full path
+    results_df_sorted.to_csv(FULL_RESULTS_CSV_PATH, index=False, float_format='%.6f')
+    print(f"  Successfully saved results to {FULL_RESULTS_CSV_PATH}") # Print the full path
 except Exception as e:
-    print(f"Error: Could not save results to CSV. Error: {e}")
+    print(f"Error: Could not save results to CSV at {FULL_RESULTS_CSV_PATH}. Error: {e}")
 
 print("\n--- Model Comparison ---")
 # Format numeric columns for better readability
