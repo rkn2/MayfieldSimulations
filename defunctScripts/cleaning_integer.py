@@ -10,7 +10,7 @@ from datetime import datetime
 plt.interactive(True)
 
 
-df = pd.read_csv('QuadState_Tornado_DataInputv2.csv', delimiter=',', encoding='latin-1')
+df = pd.read_csv('../QuadState_Tornado_DataInputv2.csv', delimiter=',', encoding='latin-1')
 #
 ## REMOVING COLUMNS
 
@@ -113,11 +113,11 @@ df.to_csv('cleaned_data_latlong.csv', index=False) # index=False prevents writin
 
 # Generate a timestamp for the filename
 #timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-filename = "feature_importance_results_latlong.csv"
+filename = "../feature_importance_results_latlong.csv"
 
 
 # Load the cleaned dataset
-df = pd.read_csv('cleaned_data_latlong.csv')
+df = pd.read_csv('../cleaned_data_latlong.csv')
 
 ## SET UP X AND Y
 # what is my initial Y
@@ -139,7 +139,7 @@ df = df.drop(columns=exist_columns)
 df.to_csv('cleaned_data_no_damage_latlong.csv', index=False)
 
 # now load this in as X
-X = pd.read_csv('cleaned_data_no_damage_latlong.csv')
+X = pd.read_csv('../cleaned_data_no_damage_latlong.csv')
 
 # CORR and Mutual info
 # Encode categorical variables
@@ -184,7 +184,7 @@ plt.tight_layout()
 
 
 # Save the figure
-figure_filename = 'feature_importance_results_latlong.png'
+figure_filename = '../feature_importance_results_latlong.png'
 plt.savefig(figure_filename, dpi=300, bbox_inches='tight')
 
 print(f"Figure has been saved to {figure_filename}")

@@ -13,12 +13,12 @@ plt.interactive(True)
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 # Load the cleaned dataset
-df = pd.read_csv('cleaned_data_latlong.csv')
+df = pd.read_csv('../cleaned_data.csv')
 
 ## SET UP X AND Y
 # what is my initial Y
 # degree_of_damage_u
-y = df['degree_of_damage_u']
+y = df['degree_of_damage_u'].astype(int)
 
 # what is my X
 # Find columns containing "damage" (case-insensitive)
@@ -32,19 +32,19 @@ exist_columns = [col for col in df.columns if 'status_u' in col.lower() or 'exis
 df = df.drop(columns=exist_columns)
 
 # Save the modified DataFrame to a new CSV file
-df.to_csv('cleaned_data_no_damage_latlong.csv', index=False)
+df.to_csv('cleaned_data_no_damage.csv', index=False)
 
 # now load this in as X
-X = pd.read_csv('cleaned_data_no_damage_latlong.csv')
+X = pd.read_csv('../cleaned_data_no_damage.csv')
 
 ## START MODELING
-X_train, X_test, y_train, y_test = train_test_split(X, y,test_size=0.2, random_state=42, stratify=y)
+X_train, X_test, y_train, y_test = train_test_split(X, y,test_size=0.2, random_state=42, stratify=y.values.astype(int))
 
-results_path = f'automl_results_reg_latlong_{timestamp}'
+results_path = f'automl_results_mclass_{timestamp}'
 
 automl = AutoML(
     results_path=results_path,
-    ml_task='regression',
+    ml_task='multiclass_classification',
    #algorithms=["CatBoost", "Xgboost", "LightGBM", "Random Forest", "Linear", "Decision Tree"],
     explain_level= 2,
     hill_climbing_steps=2,
@@ -54,13 +54,13 @@ automl = AutoML(
     stack_models=False,
     train_ensemble=False,
     mix_encoding=False,
-    eval_metric='mae', # MAE is less affected by outliers and skewed distributions than RMSE
-    #eval_metric='accuracy',
+    #eval_metric='rmse',
+    eval_metric='f1', # recommended for imbalanced datasets instead of accuracy
     validation_strategy={
         "validation_type": "kfold",
         "k_folds": 3,
         "shuffle": True,
-        "stratify": True,
+        "stratify": False,
     }
 )
 automl.fit(X_train, y_train)
