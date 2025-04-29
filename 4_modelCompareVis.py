@@ -10,33 +10,41 @@ RESULTS_DIR = 'processed_ml_data' # Directory where results CSV is saved
 RESULTS_FILENAME = 'model_tuned_cv_benchmarking_results.csv'
 FULL_RESULTS_CSV_PATH = os.path.join(RESULTS_DIR, RESULTS_FILENAME)
 
-# Directory to save the plots
+# Directory to save the combined plot
 PLOTS_OUTPUT_DIR = 'benchmarking_plots'
-SAVE_PLOTS = True # Set to False to only display plots
+COMBINED_PLOT_FILENAME = 'combined_model_performance_comparison.png'
+FULL_PLOT_SAVE_PATH = os.path.join(PLOTS_OUTPUT_DIR, COMBINED_PLOT_FILENAME)
+SAVE_PLOT = True # Set to False to only display plot
 
-# Columns from the CSV to visualize
-METRIC_COLUMNS_TO_PLOT = [
+# Columns from the CSV to include in the subplots
+# Ensure these exactly match the headers in your CSV
+# Order matters for subplot placement (top-left, top-right, bottom-left, bottom-right)
+COLUMNS_FOR_SUBPLOTS = [
     "Mean CV RMSE",
     "Mean CV R2",
     "Mean CV MAE",
-    # Add "Mean CV MSE" if desired, but RMSE is often preferred
+    "GridSearch Time (s)" # Or "Mean Fit Time (s)" if using non-tuned results
 ]
-TIME_COLUMN_TO_PLOT = "GridSearch Time (s)" # Or "Mean Fit Time (s)" if using the non-tuned results
 
 # Determine sort order based on the metric (lower is better for errors, higher for R2)
-# This dictionary helps automate plot sorting and titles
 METRIC_SORT_ORDER = {
     "Mean CV RMSE": True, # Ascending = True (lower is better)
     "Mean CV R2": False, # Ascending = False (higher is better)
     "Mean CV MAE": True, # Ascending = True (lower is better)
     "Mean CV MSE": True, # Ascending = True (lower is better)
-    "GridSearch Time (s)": True # Ascending = True (lower is better)
+    "GridSearch Time (s)": True, # Ascending = True (lower is better)
+    "Mean Fit Time (s)": True # Ascending = True (lower is better)
 }
 
 # Plotting style
 sns.set_style("whitegrid")
-PLOT_FIGSIZE = (12, 7) # Width, Height in inches
-PLOT_ROTATION = 45 # Rotation angle for x-axis labels
+# Adjust figsize for a 2x2 layout
+PLOT_FIGSIZE = (15, 12) # Width, Height in inches - May need tweaking
+PLOT_ROTATION = 60 # Rotation angle for x-axis labels (might need more rotation)
+SUPTITLE_FONTSIZE = 18
+SUBPLOT_TITLE_FONTSIZE = 14
+AXIS_LABEL_FONTSIZE = 10
+TICK_LABEL_FONTSIZE = 9
 
 # --- Helper Functions ---
 
@@ -46,115 +54,102 @@ def load_results_data(csv_path):
     try:
         df = pd.read_csv(csv_path)
         print(f"  Successfully loaded. Shape: {df.shape}")
-        # Attempt to convert potential metric/time columns back to numeric if read as object
-        numeric_cols = list(METRIC_SORT_ORDER.keys()) # Get all columns we might plot
+        # Attempt to convert potential metric/time columns back to numeric
+        numeric_cols = list(METRIC_SORT_ORDER.keys())
         for col in numeric_cols:
             if col in df.columns and df[col].dtype == 'object':
                 df[col] = pd.to_numeric(df[col], errors='coerce')
                 if df[col].isnull().any():
-                    print(f"  Warning: Column '{col}' contained non-numeric values after loading, converted to NaN.")
+                    print(f"  Warning: Column '{col}' contained non-numeric values, converted to NaN.")
         return df
     except FileNotFoundError:
         print(f"Error: Results file not found at {csv_path}")
-        print("Please ensure the benchmarking script ran successfully and saved the results.")
         exit()
     except Exception as e:
         print(f"Error loading CSV: {e}")
         exit()
 
-def plot_comparison(df, plot_col, ascending_sort, title, save_path=None, figsize=PLOT_FIGSIZE, rotation=PLOT_ROTATION):
-    """Creates a sorted bar plot comparing models for a given column."""
-    if plot_col not in df.columns:
-        print(f"Warning: Column '{plot_col}' not found in DataFrame. Skipping plot.")
-        return
-
-    # Drop rows where the plotting column is NaN for cleaner plotting
-    plot_df = df.dropna(subset=[plot_col]).copy()
-    if plot_df.empty:
-        print(f"Warning: No valid data found for column '{plot_col}' after dropping NaNs. Skipping plot.")
-        return
-
-    # Sort data for better visualization
-    plot_df = plot_df.sort_values(by=plot_col, ascending=ascending_sort)
-
-    plt.figure(figsize=figsize)
-    barplot = sns.barplot(x='Model', y=plot_col, data=plot_df, palette='viridis')
-
-    # Add value labels on top of bars (optional, can get crowded)
-    # for index, row in plot_df.iterrows():
-    #    barplot.text(index, row[plot_col], f"{row[plot_col]:.3f}", color='black', ha="center")
-
-    plt.title(title, fontsize=16)
-    plt.xlabel("Model", fontsize=12)
-    plt.ylabel(plot_col, fontsize=12)
-    plt.xticks(rotation=rotation, ha='right') # Rotate labels for readability
-    plt.tight_layout() # Adjust layout to prevent labels overlapping
-
-    if save_path:
-        try:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
-            print(f"  Plot saved to: {save_path}")
-        except Exception as e:
-            print(f"Error saving plot to {save_path}: {e}")
-
-    plt.show()
-    plt.close() # Close the figure after showing/saving
-
 # --- Main Visualization Script ---
 
-print("Starting Benchmarking Results Visualization...")
+print("Starting Combined Benchmarking Results Visualization...")
 
 # 1. Load Data
 results_df = load_results_data(FULL_RESULTS_CSV_PATH)
 
 # 2. Create Output Directory (if saving)
-if SAVE_PLOTS:
+if SAVE_PLOT:
     try:
         os.makedirs(PLOTS_OUTPUT_DIR, exist_ok=True)
-        print(f"\nPlots will be saved to: {PLOTS_OUTPUT_DIR}")
+        print(f"\nPlot will be saved to: {PLOTS_OUTPUT_DIR}")
     except Exception as e:
-        print(f"Warning: Could not create output directory '{PLOTS_OUTPUT_DIR}'. Plots will not be saved. Error: {e}")
-        SAVE_PLOTS = False # Disable saving if directory creation fails
+        print(f"Warning: Could not create output directory '{PLOTS_OUTPUT_DIR}'. Plot will not be saved. Error: {e}")
+        SAVE_PLOT = False
 
-# 3. Generate and Save/Show Plots
-print("\nGenerating plots...")
+# 3. Create the Combined Plot
+print("\nGenerating combined plot...")
 
-# Plot comparisons for each specified metric
-for metric in METRIC_COLUMNS_TO_PLOT:
-    if metric in results_df.columns:
-        ascending = METRIC_SORT_ORDER.get(metric, True) # Default to ascending sort if not specified
-        title = f"Model Comparison by {metric} ({'Lower' if ascending else 'Higher'} is Better)"
-        save_filename = f"comparison_{metric.lower().replace(' ', '_')}.png" if SAVE_PLOTS else None
-        full_save_path = os.path.join(PLOTS_OUTPUT_DIR, save_filename) if save_filename else None
+if len(COLUMNS_FOR_SUBPLOTS) != 4:
+    print(f"Error: This script expects exactly 4 columns in COLUMNS_FOR_SUBPLOTS for a 2x2 grid, but found {len(COLUMNS_FOR_SUBPLOTS)}.")
+    exit()
 
-        print(f"\nPlotting: {title}")
-        plot_comparison(
-            df=results_df,
-            plot_col=metric,
-            ascending_sort=ascending,
-            title=title,
-            save_path=full_save_path
-        )
-    else:
-        print(f"\nSkipping plot: Metric column '{metric}' not found in results.")
+# Create a figure and a 2x2 grid of subplots (axes)
+fig, axes = plt.subplots(2, 2, figsize=PLOT_FIGSIZE, sharex=False) # sharex=False allows different sorting on x-axis
+# Flatten the 2D array of axes into a 1D array for easy iteration
+axes = axes.flatten()
 
-# Plot comparison for tuning/fit time
-if TIME_COLUMN_TO_PLOT in results_df.columns:
-    ascending = METRIC_SORT_ORDER.get(TIME_COLUMN_TO_PLOT, True)
-    title = f"Model Comparison by {TIME_COLUMN_TO_PLOT} (Lower is Better)"
-    save_filename = f"comparison_{TIME_COLUMN_TO_PLOT.lower().replace(' ', '_').replace('(', '').replace(')', '')}.png" if SAVE_PLOTS else None
-    full_save_path = os.path.join(PLOTS_OUTPUT_DIR, save_filename) if save_filename else None
+# Loop through the columns and corresponding axes
+for i, plot_col in enumerate(COLUMNS_FOR_SUBPLOTS):
+    ax = axes[i] # Get the current subplot axis
 
-    print(f"\nPlotting: {title}")
-    plot_comparison(
-        df=results_df,
-        plot_col=TIME_COLUMN_TO_PLOT,
-        ascending_sort=ascending,
-        title=title,
-        save_path=full_save_path
-    )
-else:
-    print(f"\nSkipping plot: Time column '{TIME_COLUMN_TO_PLOT}' not found in results.")
+    print(f"  Processing subplot for: {plot_col}")
 
+    # Check if column exists
+    if plot_col not in results_df.columns:
+        print(f"    Warning: Column '{plot_col}' not found in DataFrame. Skipping subplot.")
+        ax.set_title(f"'{plot_col}'\n(Not Found)", fontsize=SUBPLOT_TITLE_FONTSIZE - 2)
+        ax.set_axis_off() # Turn off the axis if data is missing
+        continue
+
+    # Prepare data for the specific subplot
+    plot_df = results_df.dropna(subset=[plot_col]).copy()
+    if plot_df.empty:
+        print(f"    Warning: No valid data found for '{plot_col}' after dropping NaNs. Skipping subplot.")
+        ax.set_title(f"'{plot_col}'\n(No Data)", fontsize=SUBPLOT_TITLE_FONTSIZE - 2)
+        ax.set_axis_off()
+        continue
+
+    # Determine sort order and sort
+    ascending = METRIC_SORT_ORDER.get(plot_col, True) # Default to ascending if not in dict
+    plot_df = plot_df.sort_values(by=plot_col, ascending=ascending)
+
+    # Create the bar plot on the current axis
+    sns.barplot(x='Model', y=plot_col, data=plot_df, palette='viridis', ax=ax)
+
+    # Customize the subplot
+    title_suffix = f" ({'Lower' if ascending else 'Higher'} is Better)"
+    ax.set_title(f"{plot_col}{title_suffix}", fontsize=SUBPLOT_TITLE_FONTSIZE)
+    ax.set_xlabel(None) # Remove individual x-axis labels, models are clear
+    ax.set_ylabel(None) # Remove individual y-axis labels, title indicates metric
+    ax.tick_params(axis='x', rotation=PLOT_ROTATION, labelsize=TICK_LABEL_FONTSIZE)
+    ax.tick_params(axis='y', labelsize=TICK_LABEL_FONTSIZE)
+    ax.grid(axis='y', linestyle='--', alpha=0.7) # Add horizontal grid lines
+
+# Add an overall title to the figure
+fig.suptitle("Model Performance Comparison (Mean CV Results)", fontsize=SUPTITLE_FONTSIZE, y=1.03) # Adjust y position if needed
+
+# Adjust layout to prevent labels/titles overlapping
+plt.tight_layout(rect=[0, 0.03, 1, 0.98]) # rect=[left, bottom, right, top] leaves space for suptitle
+
+# 4. Save and Show Plot
+if SAVE_PLOT:
+    try:
+        plt.savefig(FULL_PLOT_SAVE_PATH, dpi=300, bbox_inches='tight')
+        print(f"\nCombined plot saved to: {FULL_PLOT_SAVE_PATH}")
+    except Exception as e:
+        print(f"Error saving combined plot to {FULL_PLOT_SAVE_PATH}: {e}")
+
+print("\nDisplaying combined plot...")
+plt.show()
+plt.close(fig) # Close the figure after showing/saving
 
 print("\nVisualization script finished.")
