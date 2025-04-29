@@ -1,6 +1,5 @@
 import pandas as pd
 import numpy as np
-import warnings # To handle warnings more gracefully if needed
 
 # --- Configuration ---
 INPUT_CSV_PATH = 'QuadState_Tornado_DataInputv2.csv'
@@ -9,6 +8,8 @@ OUTPUT_CSV_PATH = 'cleaned_data_latlong.csv'
 # --- Column Management ---
 TARGET_COLUMN_FOR_NAN_DROP = 'degree_of_damage_u' # Initial row filter
 LOW_VARIATION_THRESHOLD = 1 # Keep columns with more unique values than this
+PERCENT_COLUMNS_ACTION = 'keep' # 'keep' or 'drop'
+DIRECTIONAL_COLUMNS_ACTION = 'keep' # 'keep' or 'drop'
 
 # Keywords/patterns for column removal (case-insensitive)
 KEYWORDS_TO_DROP = ['photos', 'details', 'prop_', '_unc']
@@ -81,6 +82,46 @@ def drop_older_version_columns(df):
         print("No older version ('_o') columns found to drop.")
     return df
 
+def handle_percent_columns(df, action):
+    """Keeps or drops columns containing '_per_' based on the action."""
+    action = action.lower() # Make action case-insensitive
+
+    if action == 'drop':
+        cols_to_drop_per = [col for col in df.columns if '_per_' in col]
+        if cols_to_drop_per:
+            print(f"Action '{action}': Dropping columns containing '_per_': {cols_to_drop_per}")
+            df = df.drop(columns=cols_to_drop_per)
+            print(f"  Dropped {len(cols_to_drop_per)} columns containing '_per_'.")
+        else:
+            print(f"Action '{action}': No columns containing '_per_' found to drop.")
+    elif action == 'keep':
+        print(f"Action '{action}': Keeping all columns containing '_per_'.")
+    else:
+        print(f"Warning: Invalid PERCENT_COLUMNS_ACTION '{action}'. Defaulting to 'keep'.")
+
+    return df
+
+def handle_directional_columns(df, action):
+    """Keeps or drops columns ending with _n, _s, _e, or _w based on the action."""
+    action = action.lower() # Make action case-insensitive
+    directional_suffixes = ('_n', '_s', '_e', '_w')
+
+    if action == 'drop':
+        # Find columns ending with any of the directional suffixes
+        cols_to_drop_dir = [col for col in df.columns if col.endswith(directional_suffixes)]
+        if cols_to_drop_dir:
+            print(f"Action '{action}': Dropping columns ending in {directional_suffixes}: {cols_to_drop_dir}")
+            df = df.drop(columns=cols_to_drop_dir)
+            print(f"  Dropped {len(cols_to_drop_dir)} directional columns.")
+        else:
+            print(f"Action '{action}': No directional columns found to drop.")
+    elif action == 'keep':
+        print(f"Action '{action}': Keeping all directional columns.")
+    else:
+        print(f"Warning: Invalid DIRECTIONAL_COLUMNS_ACTION '{action}'. Defaulting to 'keep'.")
+
+    return df
+
 # --- Main Data Cleaning Script ---
 
 print(f"Starting data cleaning process for {INPUT_CSV_PATH}")
@@ -122,7 +163,10 @@ print(f"  Shape after dropping low variation columns: {df.shape}")
 print("\nStep 4: Dropping columns by keywords and specific names...")
 df = drop_columns_by_keywords(df, KEYWORDS_TO_DROP)
 df = drop_specific_columns(df, SPECIFIC_COLUMNS_TO_DROP)
+df = handle_percent_columns(df, PERCENT_COLUMNS_ACTION)
+df = handle_directional_columns(df, DIRECTIONAL_COLUMNS_ACTION)
 print(f"  Shape after dropping keyword/specific columns: {df.shape}")
+
 
 # 5. Drop Older Version ('_o') Columns
 print("\nStep 5: Dropping older version ('_o') columns where updated ('_u') exists...")
