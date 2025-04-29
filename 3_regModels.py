@@ -37,6 +37,7 @@ TRAIN_Y_PATH = os.path.join(DATA_DIR, 'y_train.pkl')
 TEST_X_PATH = os.path.join(DATA_DIR, 'X_test_processed.pkl')
 TEST_Y_PATH = os.path.join(DATA_DIR, 'y_test.pkl')
 FULL_RESULTS_CSV_PATH = os.path.join(DATA_DIR, RESULTS_FILENAME)
+BEST_MODEL_SAVE_PATH = os.path.join(DATA_DIR, 'best_tuned_model.pkl')
 
 RANDOM_STATE = 42
 
@@ -351,6 +352,13 @@ if best_model_name and best_final_estimator:
         print(f"  Test MSE:   {final_mse:.4f}")
         print(f"  Test RMSE:  {final_rmse:.4f}")
         print(f"  Test R2:    {final_r2:.4f}")
+
+        print(f"\n  Saving the best fitted model object to {BEST_MODEL_SAVE_PATH}...")
+        try:
+            joblib.dump(best_final_estimator, BEST_MODEL_SAVE_PATH)
+            print(f"    Successfully saved best model.")
+        except Exception as e:
+            print(f"    Error saving best model object: {e}")
 
     except Exception as e:
         print(f"    ERROR: Failed to evaluate the best tuned model ('{best_model_name}') on the test set. Error: {e}")

@@ -129,7 +129,7 @@ for i, plot_col in enumerate(COLUMNS_FOR_SUBPLOTS):
     title_suffix = f" ({'Lower' if ascending else 'Higher'} is Better)"
     ax.set_title(f"{plot_col}{title_suffix}", fontsize=SUBPLOT_TITLE_FONTSIZE)
     ax.set_xlabel(None) # Remove individual x-axis labels, models are clear
-    ax.set_ylabel(None) # Remove individual y-axis labels, title indicates metric
+    ax.set_ylabel(plot_col, fontsize=AXIS_LABEL_FONTSIZE)
     ax.tick_params(axis='x', rotation=PLOT_ROTATION, labelsize=TICK_LABEL_FONTSIZE)
     ax.tick_params(axis='y', labelsize=TICK_LABEL_FONTSIZE)
     ax.grid(axis='y', linestyle='--', alpha=0.7) # Add horizontal grid lines
