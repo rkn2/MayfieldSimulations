@@ -3,16 +3,15 @@ import numpy as np
 import os
 import joblib
 import time
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, make_scorer
+from sklearn.model_selection import KFold, cross_validate
 # Import Regression Models
 from sklearn.linear_model import LinearRegression, Ridge, Lasso, ElasticNet # ElasticNet is here
 from sklearn.tree import DecisionTreeRegressor # DecisionTreeRegressor is here
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor, HistGradientBoostingRegressor # GradientBoostingRegressor is here
 from sklearn.svm import SVR
 from sklearn.neighbors import KNeighborsRegressor
-
-# Optional: Try importing xgboost and lightgbm
+# Try importing xgboost and lightgbm
 try:
     import xgboost as xgb
     XGB_AVAILABLE = True
@@ -36,6 +35,17 @@ TEST_X_PATH = os.path.join(DATA_DIR, 'X_test_processed.pkl')
 TEST_Y_PATH = os.path.join(DATA_DIR, 'y_test.pkl')
 FULL_RESULTS_CSV_PATH = os.path.join(DATA_DIR, RESULTS_FILENAME) # <<< Correct full path
 RANDOM_STATE = 42
+
+# --- Cross-Validation Settings ---
+N_SPLITS = 3 # Number of folds for K-Fold CV
+# Define scoring metrics for cross_validate.
+# Use 'neg_' prefix for error metrics as CV maximizes scores.
+SCORING_CV = {
+    'neg_mae': 'neg_mean_absolute_error',
+    'neg_mse': 'neg_mean_squared_error',
+    'r2': 'r2'
+}
+# We will calculate RMSE from neg_mse later
 
 # Define models to test - use default parameters for initial benchmark
 # Using a dictionary for easy naming in results
@@ -68,7 +78,7 @@ METRICS_TO_CALCULATE = {
     # RMSE will be calculated from MSE later
 }
 
-PRIMARY_METRIC = "RMSE" # Choose the main metric for comparison ('RMSE', 'MAE', 'R2')
+PRIMARY_METRIC = "Mean CV RMSE" # Choose the main metric for comparison ('RMSE', 'MAE', 'R2')
 HIGHER_IS_BETTER = False # Set based on PRIMARY_METRIC (True for R2, False for MAE/MSE/RMSE)
 
 # --- Helper Functions ---
@@ -77,7 +87,7 @@ def calculate_rmse(y_true, y_pred):
     return np.sqrt(mean_squared_error(y_true, y_pred))
 
 # --- Main Script ---
-print("Starting Regression Model Benchmarking...")
+print("Starting Regression Model Benchmarking with Cross-Validation...")
 
 # 1. Load Data
 print("\nStep 1: Loading preprocessed data...")
@@ -86,119 +96,165 @@ try:
     y_train = joblib.load(TRAIN_Y_PATH)
     X_test = joblib.load(TEST_X_PATH)
     y_test = joblib.load(TEST_Y_PATH)
-    print(f"  Data loaded successfully:")
-    print(f"    X_train shape: {X_train.shape}")
-    print(f"    y_train shape: {y_train.shape}")
-    print(f"    X_test shape: {X_test.shape}")
-    print(f"    y_test shape: {y_test.shape}")
-    # Check if X data is DataFrame or numpy array (affects column access later if needed)
+    print(f"  Data loaded successfully from '{DATA_DIR}' directory.")
+    print(f"    X_train shape: {X_train.shape}, y_train shape: {y_train.shape}")
+    print(f"    X_test shape: {X_test.shape}, y_test shape: {y_test.shape}")
     print(f"    X_train type: {type(X_train)}")
 except FileNotFoundError as e:
-    print(f"Error: Could not find data file: {e}. Ensure preprocessing script ran successfully.")
+    print(f"Error: Could not find data file: {e}.")
     exit()
 except Exception as e:
     print(f"Error loading data: {e}")
     exit()
 
-# Convert y_train to numpy array if it's a Series/DataFrame for consistency
 if isinstance(y_train, (pd.Series, pd.DataFrame)):
-    y_train = y_train.values.ravel() # Use ravel() to ensure it's 1D
+    y_train = y_train.values.ravel()
+if isinstance(y_test, (pd.Series, pd.DataFrame)):
+    y_test = y_test.values.ravel() # Also ensure y_test is 1D array for final eval
 
-# 2. Run Models and Evaluate
-print("\nStep 2: Training and evaluating models...")
-results = []
+
+# 2. Run Cross-Validation for Each Model
+print(f"\nStep 2: Running {N_SPLITS}-Fold Cross-Validation on training data...")
+cv_results_list = []
+# Set up K-Fold strategy
+kf = KFold(n_splits=N_SPLITS, shuffle=True, random_state=RANDOM_STATE)
 
 for model_name, model in MODELS_TO_TEST.items():
-    print(f"  Testing model: {model_name}...")
+    print(f"  Cross-validating model: {model_name}...")
     start_time = time.time()
 
     try:
-        # Fit model
-        model.fit(X_train, y_train)
+        # Perform cross-validation
+        cv_results = cross_validate(
+            estimator=model,
+            X=X_train,
+            y=y_train,
+            cv=kf,
+            scoring=SCORING_CV,
+            n_jobs=-1, # Use all available cores
+            return_train_score=False # Usually not needed for basic comparison
+        )
+        cv_time = time.time() - start_time
 
-        # Predict on test set
-        y_pred = model.predict(X_test)
-
-        end_time = time.time()
-        train_time = end_time - start_time
-
-        # Calculate metrics
-        metrics = {}
-        for metric_name, metric_func in METRICS_TO_CALCULATE.items():
-            try:
-                metrics[metric_name] = metric_func(y_test, y_pred)
-            except Exception as e:
-                print(f"    Warning: Could not calculate metric {metric_name} for {model_name}. Error: {e}")
-                metrics[metric_name] = np.nan
-
-        # Calculate RMSE separately
-        try:
-            metrics["RMSE"] = calculate_rmse(y_test, y_pred)
-        except Exception as e:
-             print(f"    Warning: Could not calculate RMSE for {model_name}. Error: {e}")
-             metrics["RMSE"] = np.nan
-
+        # Calculate mean metrics from CV results
+        mean_fit_time = np.mean(cv_results['fit_time'])
+        mean_mae = -np.mean(cv_results['test_neg_mae']) # Flip sign back
+        mean_mse = -np.mean(cv_results['test_neg_mse']) # Flip sign back
+        mean_r2 = np.mean(cv_results['test_r2'])
+        mean_rmse = np.sqrt(mean_mse) # Calculate RMSE from positive MSE
 
         # Store results
-        result_row = {"Model": model_name, "Fit Time (s)": train_time}
-        result_row.update(metrics)
-        results.append(result_row)
-        print(f"    Finished in {train_time:.2f} seconds. R2: {metrics.get('R2', 'N/A'):.4f}, RMSE: {metrics.get('RMSE', 'N/A'):.4f}")
+        result_row = {
+            "Model": model_name,
+            "Mean Fit Time (s)": mean_fit_time,
+            "Mean CV MAE": mean_mae,
+            "Mean CV MSE": mean_mse,
+            "Mean CV RMSE": mean_rmse,
+            "Mean CV R2": mean_r2
+        }
+        cv_results_list.append(result_row)
+        print(f"    Finished CV in {cv_time:.2f} seconds. Mean CV R2: {mean_r2:.4f}, Mean CV RMSE: {mean_rmse:.4f}")
 
     except Exception as e:
-        print(f"    ERROR: Model {model_name} failed. Error: {e}")
-        # Optionally store failure information
-        results.append({"Model": model_name, "Fit Time (s)": np.nan, "MAE": np.nan, "MSE": np.nan, "R2": np.nan, "RMSE": np.nan, "Error": str(e)})
+        print(f"    ERROR: Model {model_name} failed during cross-validation. Error: {e}")
+        cv_results_list.append({
+            "Model": model_name, "Mean Fit Time (s)": np.nan, "Mean CV MAE": np.nan,
+            "Mean CV MSE": np.nan, "Mean CV RMSE": np.nan, "Mean CV R2": np.nan, "Error": str(e)
+        })
 
 
-print("\nStep 3: Summarizing results...")
-if not results:
-    print("No models were successfully tested.")
+# 3. Summarize CV Results
+print("\nStep 3: Summarizing Cross-Validation results...")
+if not cv_results_list:
+    print("No models were successfully cross-validated.")
     exit()
-results_df = pd.DataFrame(results)
-if PRIMARY_METRIC not in results_df.columns:
-     print(f"Error: Primary metric '{PRIMARY_METRIC}' not found.")
+
+cv_results_df = pd.DataFrame(cv_results_list)
+
+# Ensure primary metric column exists before sorting
+if PRIMARY_METRIC not in cv_results_df.columns:
+     print(f"Error: Primary metric '{PRIMARY_METRIC}' not found in CV results columns: {cv_results_df.columns.tolist()}")
      exit()
-results_df_sorted = results_df.sort_values(by=PRIMARY_METRIC, ascending=not HIGHER_IS_BETTER, na_position='last').copy()
 
+# Sort results based on the primary CV metric
+cv_results_df_sorted = cv_results_df.sort_values(by=PRIMARY_METRIC, ascending=not HIGHER_IS_BETTER, na_position='last').copy()
 
-# --- Save Results to CSV --- <<< CORRECTED SECTION
-print(f"\nStep 3.5: Saving results summary to {FULL_RESULTS_CSV_PATH}...")
+# --- Save CV Results to CSV ---
+print(f"\nStep 3.5: Saving CV results summary to {FULL_RESULTS_CSV_PATH}...")
 try:
-    # Ensure the target directory exists
-    # os.path.dirname(FULL_RESULTS_CSV_PATH) will correctly get DATA_DIR
     target_dir = os.path.dirname(FULL_RESULTS_CSV_PATH)
-    if target_dir: # Check if it's not empty (it shouldn't be here)
-        os.makedirs(target_dir, exist_ok=True) # exist_ok=True prevents error if dir exists
-        print(f"  Ensured directory exists: {target_dir}")
-
-    # Save the sorted DataFrame using the full path
-    results_df_sorted.to_csv(FULL_RESULTS_CSV_PATH, index=False, float_format='%.6f')
-    print(f"  Successfully saved results to {FULL_RESULTS_CSV_PATH}") # Print the full path
+    if target_dir:
+        os.makedirs(target_dir, exist_ok=True)
+    cv_results_df_sorted.to_csv(FULL_RESULTS_CSV_PATH, index=False, float_format='%.6f')
+    print(f"  Successfully saved CV results to {FULL_RESULTS_CSV_PATH}")
 except Exception as e:
-    print(f"Error: Could not save results to CSV at {FULL_RESULTS_CSV_PATH}. Error: {e}")
+    print(f"Error: Could not save CV results to CSV at {FULL_RESULTS_CSV_PATH}. Error: {e}")
 
-print("\n--- Model Comparison ---")
-# Format numeric columns for better readability
-float_cols = results_df.select_dtypes(include=np.number).columns
-results_df[float_cols] = results_df[float_cols].applymap(lambda x: f"{x:.4f}" if pd.notna(x) else "N/A")
-print(results_df.to_string(index=False)) # Use to_string to see all columns/rows
+print("\n--- Cross-Validation Model Comparison (Display) ---")
+# Format numeric columns for better console readability
+cv_results_df_display = cv_results_df_sorted.copy()
+float_cols = cv_results_df_display.select_dtypes(include=np.number).columns
+for col in float_cols:
+     if col in cv_results_df_display:
+          cv_results_df_display[col] = cv_results_df_display[col].apply(lambda x: f"{x:.4f}" if pd.notna(x) else "N/A")
+print(cv_results_df_display.to_string(index=False))
 
-# 4. Identify Best Model
-print("\nStep 4: Identifying best model...")
+
+# 4. Identify Best Model based on CV
+print("\nStep 4: Identifying best model based on Cross-Validation...")
 # Filter out rows with errors if any
-valid_results = pd.DataFrame(results).dropna(subset=[PRIMARY_METRIC])
+valid_cv_results = pd.DataFrame(cv_results_list).dropna(subset=[PRIMARY_METRIC])
 
-if not valid_results.empty:
+best_model_name = None
+if not valid_cv_results.empty:
      # Re-sort the original numeric results to find the best index
-     valid_results_sorted = valid_results.sort_values(by=PRIMARY_METRIC, ascending=not HIGHER_IS_BETTER)
-     best_model_row = valid_results_sorted.iloc[0]
+     valid_cv_results_sorted = valid_cv_results.sort_values(by=PRIMARY_METRIC, ascending=not HIGHER_IS_BETTER)
+     best_model_row = valid_cv_results_sorted.iloc[0]
+     best_model_name = best_model_row['Model']
      print(f"\nBest model based on {PRIMARY_METRIC} ({'higher' if HIGHER_IS_BETTER else 'lower'} is better):")
      print(f"  Model: {best_model_row['Model']}")
      print(f"  {PRIMARY_METRIC}: {best_model_row[PRIMARY_METRIC]:.4f}")
-     print(f"  Fit Time: {best_model_row['Fit Time (s)']:.2f} seconds")
+     print(f"  Mean Fit Time: {best_model_row['Mean Fit Time (s)']:.2f} seconds")
 else:
-     print("Could not determine the best model (no valid results).")
+     print("Could not determine the best model from CV results (no valid results).")
+
+
+# 5. Final Evaluation of Best Model on Test Set (Optional but Recommended)
+print("\nStep 5: Final evaluation of the best model on the hold-out test set...")
+if best_model_name and best_model_name in MODELS_TO_TEST:
+    print(f"  Re-training best model ('{best_model_name}') on the full training set...")
+    # Instantiate a new instance of the best model
+    best_model_final = MODELS_TO_TEST[best_model_name]
+
+    try:
+        start_final_fit = time.time()
+        best_model_final.fit(X_train, y_train)
+        final_fit_time = time.time() - start_final_fit
+        print(f"    Final fit time: {final_fit_time:.2f} seconds")
+
+        # Predict on the test set
+        y_pred_test = best_model_final.predict(X_test)
+
+        # Calculate final metrics on the test set
+        final_mae = mean_absolute_error(y_test, y_pred_test)
+        final_mse = mean_squared_error(y_test, y_pred_test)
+        final_rmse = np.sqrt(final_mse)
+        final_r2 = r2_score(y_test, y_pred_test)
+
+        print("\n  --- Final Test Set Performance ---")
+        print(f"  Model: {best_model_name}")
+        print(f"  Test MAE:   {final_mae:.4f}")
+        print(f"  Test MSE:   {final_mse:.4f}")
+        print(f"  Test RMSE:  {final_rmse:.4f}")
+        print(f"  Test R2:    {final_r2:.4f}")
+
+    except Exception as e:
+        print(f"    ERROR: Failed to re-train or evaluate the best model ('{best_model_name}') on the test set. Error: {e}")
+
+elif best_model_name:
+     print(f"  Skipping final evaluation: Best model name '{best_model_name}' not found in MODELS_TO_TEST dictionary (this shouldn't happen).")
+else:
+    print("  Skipping final evaluation: No best model identified from cross-validation.")
 
 
 print("\nBenchmarking finished.")
