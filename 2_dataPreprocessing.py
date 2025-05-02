@@ -11,7 +11,7 @@ import seaborn as sns
 
 # --- Configuration ---
 
-SUBSAMPLE_DAMAGE_0 = 25  # Number of rows to keep for damage level 0.  Set to None to disable.
+SUBSAMPLE_DAMAGE_0 = 40  # Number of rows to keep for damage level 0.  Set to None to disable.
 
 INPUT_CSV_PATH = 'cleaned_data_latlong.csv' # Output from the previous cleaning script
 TARGET_COLUMN = 'degree_of_damage_u'

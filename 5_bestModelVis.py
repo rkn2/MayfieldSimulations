@@ -7,7 +7,7 @@ import os
 import time
 import warnings
 from sklearn.inspection import permutation_importance
-from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, mean_absolute_error, mean_squared_error, r2_score, f1_score
 
 # --- Configuration ---
 DATA_DIR = 'processed_ml_data'
@@ -33,6 +33,9 @@ AXIS_LABEL_FONTSIZE = 10
 TICK_LABEL_FONTSIZE = 9
 PLOT_FEATURE_IMPORTANCE = True
 N_FEATURES_TO_SHOW = 20
+
+# New Configuration: Subplot vs. Individual Plots
+USE_SUBPLOTS = False  # If True, generate a single figure with subplots; otherwise, create individual plots
 
 # Permutation Importance Settings
 CALCULATE_PERMUTATION_IMPORTANCE = True
@@ -135,7 +138,32 @@ except Exception as e:
 residuals = y_test - y_pred
 print(f"  Residuals calculated (Mean: {residuals.mean():.4f}, StdDev: {residuals.std():.4f})")
 
-# 4. Create Output Directory
+# 4. Calculate Performance Metrics
+print("\nStep 4: Calculating performance metrics...")
+mae = mean_absolute_error(y_test, y_pred)
+mse = mean_squared_error(y_test, y_pred)
+rmse = np.sqrt(mse)
+r2 = r2_score(y_test, y_pred)
+
+print(f"  Mean Absolute Error (MAE): {mae:.4f}")
+print(f"  Mean Squared Error (MSE): {mse:.4f}")
+print(f"  Root Mean Squared Error (RMSE): {rmse:.4f}")
+print(f"  R-squared (R2): {r2:.4f}")
+
+# 5. Print Confusion Matrix and F1 Scores
+print("\nStep 5: Printing Confusion Matrix and F1 Scores...")
+cm = confusion_matrix(y_test, np.round(y_pred), labels=np.unique(y_test), normalize=CONFUSION_MATRIX_NORMALIZATION)
+print("\nConfusion Matrix:")
+print(cm)
+
+# Calculate F1-score
+f1_macro = f1_score(y_test, np.round(y_pred), average='macro', zero_division=0) # Handle zero division
+f1_weighted = f1_score(y_test, np.round(y_pred), average='weighted', zero_division=0)
+
+print(f"Macro F1-Score: {f1_macro:.3f}")
+print(f"Weighted F1-Score: {f1_weighted:.3f}")
+
+# 6. Create Output Directory
 if SAVE_PLOTS:
     try:
         os.makedirs(PLOTS_OUTPUT_DIR, exist_ok=True)
@@ -144,175 +172,407 @@ if SAVE_PLOTS:
         print(f"Warning: Could not create output directory '{PLOTS_OUTPUT_DIR}'. Plots will not be saved. Error: {e}")
         SAVE_PLOTS = False
 
-# 5. Generate Diagnostic Plots (3x2 Layout)
+# 7. Generate Diagnostic Plots
 n_instances = len(y_test)
-print("\nStep 5: Generating diagnostic plots...")
+print("\nStep 7: Generating diagnostic plots...")
 
-fig, axes = plt.subplots(3, 2, figsize=PLOT_FIGSIZE) # 3 rows, 2 columns
-#fig.suptitle(f"Diagnostic Plots for Best Model: {type(best_model).__name__}", fontsize=SUPTITLE_FONTSIZE, y=0.98) # Adjust y
-fig.suptitle(f"Diagnostic Plots for Best Model: {type(best_model).__name__} (Mean CV MAE: {best_model_val:.4f})", fontsize=SUPTITLE_FONTSIZE, y=0.98) # Adjust y
+if USE_SUBPLOTS:
+    # --- Subplot Version ---
+    print("  Generating diagnostic plots as subplots...")
+    fig, axes = plt.subplots(3, 2, figsize=PLOT_FIGSIZE) # 3 rows, 2 columns
+    fig.suptitle(f"Diagnostic Plots for Best Model: {type(best_model).__name__} (Mean CV MAE: {best_model_val:.4f})", fontsize=SUPTITLE_FONTSIZE, y=0.98) # Adjust y
 
-# Flatten the 2D array of axes into a 1D array for easy iteration
-axes = axes.flatten()
+    # Flatten the 2D array of axes into a 1D array for easy iteration
+    axes = axes.flatten()
 
-# --- Subplot 0: Predicted vs. Actual ---
-print("  Plotting Predicted vs. Actual...")
-ax0 = axes[0] # First subplot
-ax0.scatter(y_test, y_pred, alpha=0.5, edgecolors='k', s=20)
-max_val = max(np.max(y_test), np.max(y_pred)) # Use np.max for safety
-min_val = min(np.min(y_test), np.min(y_pred)) # Use np.min for safety
-ax0.plot([min_val, max_val], [min_val, max_val], 'r--', lw=2, label='Ideal (y=x)')
-ax0.set_xlabel("Actual Values (y_test)", fontsize=AXIS_LABEL_FONTSIZE)
-ax0.set_ylabel("Predicted Values (y_pred)", fontsize=AXIS_LABEL_FONTSIZE)
-ax0.set_title(f"Predicted vs. Actual Values (n={n_instances})", fontsize=SUBPLOT_TITLE_FONTSIZE)
-ax0.legend()
-ax0.grid(True)
-ax0.tick_params(axis='both', labelsize=TICK_LABEL_FONTSIZE)
+    # --- Subplot 0: Predicted vs. Actual ---
+    print("  Plotting Predicted vs. Actual...")
+    ax0 = axes[0] # First subplot
+    ax0.scatter(y_test, y_pred, alpha=0.5, edgecolors='k', s=20)
+    max_val = max(np.max(y_test), np.max(y_pred)) # Use np.max for safety
+    min_val = min(np.min(y_test), np.min(y_pred)) # Use np.min for safety
+    ax0.plot([min_val, max_val], [min_val, max_val], 'r--', lw=2, label='Ideal (y=x)')
+    ax0.set_xlabel("Actual Values (y_test)", fontsize=AXIS_LABEL_FONTSIZE)
+    ax0.set_ylabel("Predicted Values (y_pred)", fontsize=AXIS_LABEL_FONTSIZE)
+    ax0.set_title(f"Predicted vs. Actual Values (n={n_instances})", fontsize=SUBPLOT_TITLE_FONTSIZE)
+    ax0.legend()
+    ax0.grid(True)
+    ax0.tick_params(axis='both', labelsize=TICK_LABEL_FONTSIZE)
 
-# --- Subplot 1: Residuals vs. Predicted ---
-print("  Plotting Residuals vs. Predicted...")
-ax1 = axes[1] # Second subplot
-ax1.scatter(y_pred, residuals, alpha=0.5, edgecolors='k', s=20)
-ax1.axhline(0, color='red', linestyle='--', lw=2, label='Zero Error')
-ax1.set_xlabel("Predicted Values (y_pred)", fontsize=AXIS_LABEL_FONTSIZE)
-ax1.set_ylabel("Residuals (Actual - Predicted)", fontsize=AXIS_LABEL_FONTSIZE)
-ax1.set_title(f"Residuals vs. Predicted Values (n={n_instances})", fontsize=SUBPLOT_TITLE_FONTSIZE)
-ax1.legend()
-ax1.grid(True)
-ax1.tick_params(axis='both', labelsize=TICK_LABEL_FONTSIZE)
+    # --- Subplot 1: Residuals vs. Predicted ---
+    print("  Plotting Residuals vs. Predicted...")
+    ax1 = axes[1] # Second subplot
+    ax1.scatter(y_pred, residuals, alpha=0.5, edgecolors='k', s=20)
+    ax1.axhline(0, color='red', linestyle='--', lw=2, label='Zero Error')
+    ax1.set_xlabel("Predicted Values (y_pred)", fontsize=AXIS_LABEL_FONTSIZE)
+    ax1.set_ylabel("Residuals (Actual - Predicted)", fontsize=AXIS_LABEL_FONTSIZE)
+    ax1.set_title(f"Residuals vs. Predicted Values (n={n_instances})", fontsize=SUBPLOT_TITLE_FONTSIZE)
+    ax1.legend()
+    ax1.grid(True)
+    ax1.tick_params(axis='both', labelsize=TICK_LABEL_FONTSIZE)
 
-# --- Subplot 2: Residual Distribution ---
-print("  Plotting Residual Distribution...")
-ax2 = axes[2] # Third subplot
-sns.histplot(residuals, kde=True, ax=ax2, bins=30)
-ax2.set_xlabel("Residuals (Actual - Predicted)", fontsize=AXIS_LABEL_FONTSIZE)
-ax2.set_ylabel("Frequency", fontsize=AXIS_LABEL_FONTSIZE)
-ax2.set_title(f"Distribution of Residuals (n={n_instances})", fontsize=SUBPLOT_TITLE_FONTSIZE)
-ax2.grid(True)
-ax2.tick_params(axis='both', labelsize=TICK_LABEL_FONTSIZE)
+    # --- Subplot 2: Residual Distribution ---
+    print("  Plotting Residual Distribution...")
+    ax2 = axes[2] # Third subplot
+    sns.histplot(residuals, kde=True, ax=ax2, bins=30)
+    ax2.set_xlabel("Residuals (Actual - Predicted)", fontsize=AXIS_LABEL_FONTSIZE)
+    ax2.set_ylabel("Frequency", fontsize=AXIS_LABEL_FONTSIZE)
+    ax2.set_title(f"Distribution of Residuals (n={n_instances})", fontsize=SUBPLOT_TITLE_FONTSIZE)
+    ax2.grid(True)
+    ax2.tick_params(axis='both', labelsize=TICK_LABEL_FONTSIZE)
 
-# --- Subplot 3: Feature Importance ---
-print("  Processing Feature Importance...")
-ax3 = axes[3] # Fourth subplot
-feature_names = get_feature_names(preprocessor, X_test) # Pass original X_test type if needed
+    # --- Subplot 3: Feature Importance ---
+    print("  Processing Feature Importance...")
+    ax3 = axes[3] # Fourth subplot
+    feature_names = get_feature_names(preprocessor, X_test) # Pass original X_test type if needed
 
-importance_calculated = False
-if PLOT_FEATURE_IMPORTANCE and feature_names is not None:
-    importance_scores = None
-    feature_type = None
+    importance_calculated = False
+    if PLOT_FEATURE_IMPORTANCE and feature_names is not None:
+        importance_scores = None
+        feature_type = None
 
-    # Try standard attributes first
-    if hasattr(best_model, 'feature_importances_'):
-        importance_scores = best_model.feature_importances_
-        feature_type = "Importance (Built-in)"
-        importance_calculated = True
-        print(f"    Using built-in '{feature_type}'.")
-    elif hasattr(best_model, 'coef_'):
-        importance_scores = np.abs(best_model.coef_)
-        if importance_scores.ndim > 1: # Handle potential multi-output coef shape
-             importance_scores = importance_scores.mean(axis=0)
-        feature_type = "Coefficient Magnitude"
-        importance_calculated = True
-        print(f"    Using '{feature_type}'.")
-
-    # If standard attributes not found, try Permutation Importance
-    if not importance_calculated and CALCULATE_PERMUTATION_IMPORTANCE:
-        print(f"    Standard importance not found. Calculating Permutation Importance (n_repeats={N_PERMUTATION_REPEATS}, scoring='{PERMUTATION_SCORING}')...")
-        try:
-            X_test_perm = X_test.values if isinstance(X_test, pd.DataFrame) else X_test # Ensure X_test is numpy
-            start_perm = time.time()
-            perm_result = permutation_importance(
-                best_model,
-                X_test_perm, # Use test set for importance calculation
-                y_test,
-                n_repeats=N_PERMUTATION_REPEATS,
-                random_state=RANDOM_STATE,
-                scoring=PERMUTATION_SCORING,
-                n_jobs=-1
-            )
-            duration_perm = time.time() - start_perm
-            importance_scores = perm_result.importances_mean
-            feature_type = f"Permutation Importance ({PERMUTATION_SCORING.split('_')[-1]})"
+        # Try standard attributes first
+        if hasattr(best_model, 'feature_importances_'):
+            importance_scores = best_model.feature_importances_
+            feature_type = "Importance (Built-in)"
             importance_calculated = True
-            print(f"    Permutation Importance calculated in {duration_perm:.2f} seconds.")
-        except Exception as e:
-            print(f"    Warning: Permutation Importance calculation failed. Error: {e}")
+            print(f"    Using built-in '{feature_type}'.")
+        elif hasattr(best_model, 'coef_'):
+            importance_scores = np.abs(best_model.coef_)
+            if importance_scores.ndim > 1: # Handle potential multi-output coef shape
+                 importance_scores = importance_scores.mean(axis=0)
+            feature_type = "Coefficient Magnitude"
+            importance_calculated = True
+            print(f"    Using '{feature_type}'.")
 
-    # Plot if importance scores were successfully obtained
-    if importance_calculated and importance_scores is not None:
-        if len(importance_scores) == len(feature_names):
-            print(f"    Plotting top {N_FEATURES_TO_SHOW} features by {feature_type}.")
-            feature_importance_df = pd.DataFrame({
-                'Feature': feature_names,
-                'Score': importance_scores
-            }).sort_values(by='Score', ascending=False).head(N_FEATURES_TO_SHOW)
+        # If standard attributes not found, try Permutation Importance
+        if not importance_calculated and CALCULATE_PERMUTATION_IMPORTANCE:
+            print(f"    Standard importance not found. Calculating Permutation Importance (n_repeats={N_PERMUTATION_REPEATS}, scoring='{PERMUTATION_SCORING}')...")
+            try:
+                X_test_perm = X_test.values if isinstance(X_test, pd.DataFrame) else X_test # Ensure X_test is numpy
+                start_perm = time.time()
+                perm_result = permutation_importance(
+                    best_model,
+                    X_test_perm, # Use test set for importance calculation
+                    y_test,
+                    n_repeats=N_PERMUTATION_REPEATS,
+                    random_state=RANDOM_STATE,
+                    scoring=PERMUTATION_SCORING,
+                    n_jobs=-1
+                )
+                duration_perm = time.time() - start_perm
+                importance_scores = perm_result.importances_mean
+                feature_type = f"Permutation Importance ({PERMUTATION_SCORING.split('_')[-1]})"
+                importance_calculated = True
+                print(f"    Permutation Importance calculated in {duration_perm:.2f} seconds.")
+            except Exception as e:
+                print(f"    Warning: Permutation Importance calculation failed. Error: {e}")
 
-            sns.barplot(x='Score', y='Feature', data=feature_importance_df, ax=ax3, palette='rocket')
-            ax3.set_title(f"Top {N_FEATURES_TO_SHOW} Features by {feature_type}", fontsize=SUBPLOT_TITLE_FONTSIZE)
-            ax3.set_xlabel("Importance Score", fontsize=AXIS_LABEL_FONTSIZE)
-            ax3.set_ylabel("Feature", fontsize=AXIS_LABEL_FONTSIZE)
-            ax3.tick_params(axis='x', labelsize=TICK_LABEL_FONTSIZE)
-            ax3.tick_params(axis='y', labelsize=TICK_LABEL_FONTSIZE-1)
-        else:
-             print(f"    Warning: Mismatch between number of features ({len(feature_names)}) and importance scores ({len(importance_scores)}). Skipping importance plot.")
-             ax3.set_title("Feature Importance (Error)", fontsize=SUBPLOT_TITLE_FONTSIZE - 2)
-             ax3.set_axis_off()
-    elif PLOT_FEATURE_IMPORTANCE: # Importance was desired but couldn't be calculated
-        print(f"    Note: Could not determine feature importance for model type '{type(best_model).__name__}'. Skipping plot.")
-        ax3.set_title("Feature Importance (N/A)", fontsize=SUBPLOT_TITLE_FONTSIZE - 2)
+        # Plot if importance scores were successfully obtained
+        if importance_calculated and importance_scores is not None:
+            if len(importance_scores) == len(feature_names):
+                print(f"    Plotting top {N_FEATURES_TO_SHOW} features by {feature_type}.")
+                feature_importance_df = pd.DataFrame({
+                    'Feature': feature_names,
+                    'Score': importance_scores
+                }).sort_values(by='Score', ascending=False).head(N_FEATURES_TO_SHOW)
+
+                sns.barplot(x='Score', y='Feature', data=feature_importance_df, ax=ax3, palette='rocket')
+                ax3.set_title(f"Top {N_FEATURES_TO_SHOW} Features by {feature_type}", fontsize=SUBPLOT_TITLE_FONTSIZE)
+                ax3.set_xlabel("Importance Score", fontsize=AXIS_LABEL_FONTSIZE)
+                ax3.set_ylabel("Feature", fontsize=AXIS_LABEL_FONTSIZE)
+                ax3.tick_params(axis='x', labelsize=TICK_LABEL_FONTSIZE)
+                ax3.tick_params(axis='y', labelsize=TICK_LABEL_FONTSIZE-1)
+            else:
+                 print(f"    Warning: Mismatch between number of features ({len(feature_names)}) and importance scores ({len(importance_scores)}). Skipping importance plot.")
+                 ax3.set_title("Feature Importance (Error)", fontsize=SUBPLOT_TITLE_FONTSIZE - 2)
+                 ax3.set_axis_off()
+        elif PLOT_FEATURE_IMPORTANCE: # Importance was desired but couldn't be calculated
+            print(f"    Note: Could not determine feature importance for model type '{type(best_model).__name__}'. Skipping plot.")
+            ax3.set_title("Feature Importance (N/A)", fontsize=SUBPLOT_TITLE_FONTSIZE - 2)
+            ax3.set_axis_off()
+
+    # Handle cases where plotting was disabled or feature names were missing
+    elif not PLOT_FEATURE_IMPORTANCE:
+        print("  Note: Feature importance plot disabled by configuration.")
+        ax3.set_title("Feature Importance (Disabled)", fontsize=SUBPLOT_TITLE_FONTSIZE - 2)
+        ax3.set_axis_off()
+    else: # feature_names must be None
+        print("  Note: Could not retrieve feature names. Skipping feature importance plot.")
+        ax3.set_title("Feature Importance (No Names)", fontsize=SUBPLOT_TITLE_FONTSIZE - 2)
         ax3.set_axis_off()
 
-# Handle cases where plotting was disabled or feature names were missing
-elif not PLOT_FEATURE_IMPORTANCE:
-    print("  Note: Feature importance plot disabled by configuration.")
-    ax3.set_title("Feature Importance (Disabled)", fontsize=SUBPLOT_TITLE_FONTSIZE - 2)
-    ax3.set_axis_off()
-else: # feature_names must be None
-    print("  Note: Could not retrieve feature names. Skipping feature importance plot.")
-    ax3.set_title("Feature Importance (No Names)", fontsize=SUBPLOT_TITLE_FONTSIZE - 2)
-    ax3.set_axis_off()
+    # --- Subplot 4: Confusion Matrix ---
+    print("  Plotting Confusion Matrix...")
+    ax4 = axes[4] # Fifth subplot
 
-# --- Subplot 4: Confusion Matrix ---
-print("  Plotting Confusion Matrix...")
-ax4 = axes[4] # Fifth subplot
-
-try:
-    # Create the confusion matrix
-    cm = confusion_matrix(y_test, np.round(y_pred), labels=np.unique(y_test), normalize=CONFUSION_MATRIX_NORMALIZATION)
-
-    # Create a ConfusionMatrixDisplay object
-    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=CONFUSION_MATRIX_DISPLAY_LABELS or np.unique(y_test))
-
-    # Plot the confusion matrix on the specified axis
-    disp.plot(cmap=plt.cm.Blues, ax=ax4, values_format=".2f") # values_format for cleaner display
-
-    # Customize the subplot
-    ax4.set_xlabel("Predicted Label", fontsize=AXIS_LABEL_FONTSIZE)
-    ax4.set_ylabel("True Label", fontsize=AXIS_LABEL_FONTSIZE)
-    ax4.set_title(f"Confusion Matrix (n={n_instances})", fontsize=SUBPLOT_TITLE_FONTSIZE)
-    ax4.tick_params(axis='both', labelsize=TICK_LABEL_FONTSIZE)
-    ax4.grid(False) # Remove grid lines for cleaner look
-
-except Exception as e:
-    print(f"    Error: Could not create confusion matrix. Error: {e}")
-    ax4.set_title("Confusion Matrix (Error)", fontsize=SUBPLOT_TITLE_FONTSIZE - 2)
-    ax4.set_axis_off() # Turn off axis if there's an error
-
-# Adjust layout
-print("\nAdjusting plot layout...")
-plt.tight_layout(rect=[0, 0.03, 1, 0.95]) # Adjust rect for suptitle
-
-# 6. Save and Show Plot
-if SAVE_PLOTS:
-    plot_save_path = os.path.join(PLOTS_OUTPUT_DIR, f"best_model_{type(best_model).__name__}_diagnostics.png")
     try:
-        plt.savefig(plot_save_path, dpi=300, bbox_inches='tight')
-        print(f"\nDiagnostic plot saved to: {plot_save_path}")
-    except Exception as e:
-        print(f"Error saving diagnostic plot to {plot_save_path}: {e}")
+        # Create the confusion matrix
+        cm = confusion_matrix(y_test, np.round(y_pred), labels=np.unique(y_test), normalize=CONFUSION_MATRIX_NORMALIZATION)
 
-print("\nDisplaying diagnostic plot...")
-plt.show()
-plt.close(fig)
+        # Create a ConfusionMatrixDisplay object
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=CONFUSION_MATRIX_DISPLAY_LABELS or np.unique(y_test))
+
+        # Plot the confusion matrix on the specified axis
+        disp.plot(cmap=plt.cm.Blues, ax=ax4, values_format=".2f") # values_format for cleaner display
+
+        # Customize the subplot
+        ax4.set_xlabel("Predicted Label", fontsize=AXIS_LABEL_FONTSIZE)
+        ax4.set_ylabel("True Label", fontsize=AXIS_LABEL_FONTSIZE)
+        ax4.set_title(f"Confusion Matrix (n={n_instances})", fontsize=SUBPLOT_TITLE_FONTSIZE)
+        ax4.tick_params(axis='both', labelsize=TICK_LABEL_FONTSIZE)
+        ax4.grid(False) # Remove grid lines for cleaner look
+
+    except Exception as e:
+        print(f"    Error: Could not create confusion matrix. Error: {e}")
+        ax4.set_title("Confusion Matrix (Error)", fontsize=SUBPLOT_TITLE_FONTSIZE - 2)
+        ax4.set_axis_off() # Turn off axis if there's an error
+
+    # Remove the last subplot if not used
+    if len(axes) > 5:
+        fig.delaxes(axes[5])
+
+    # Adjust layout
+    print("\nAdjusting plot layout...")
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95]) # Adjust rect for suptitle
+
+    # 8. Save and Show Plot
+    if SAVE_PLOTS:
+        plot_save_path = os.path.join(PLOTS_OUTPUT_DIR, f"best_model_{type(best_model).__name__}_diagnostics.png")
+        try:
+            plt.savefig(plot_save_path, dpi=300, bbox_inches='tight')
+            print(f"\nDiagnostic plot saved to: {plot_save_path}")
+        except Exception as e:
+            print(f"Error saving diagnostic plot to {plot_save_path}: {e}")
+
+    print("\nDisplaying diagnostic plot...")
+    plt.show()
+    plt.close(fig)
+
+else:
+    # --- Individual Plot Version ---
+    print("  Generating diagnostic plots as individual plots...")
+
+    # --- Plot 0: Predicted vs. Actual ---
+    print("  Plotting Predicted vs. Actual...")
+    plt.figure(figsize=(8, 6))
+    plt.scatter(y_test, y_pred, alpha=0.5, edgecolors='k', s=20)
+    max_val = max(np.max(y_test), np.max(y_pred)) # Use np.max for safety
+    min_val = min(np.min(y_test), np.min(y_pred)) # Use np.min for safety
+    plt.plot([min_val, max_val], [min_val, max_val], 'r--', lw=2, label='Ideal (y=x)')
+    plt.xlabel("Actual Values (y_test)", fontsize=AXIS_LABEL_FONTSIZE)
+    plt.ylabel("Predicted Values (y_pred)", fontsize=AXIS_LABEL_FONTSIZE)
+    plt.title(f"Predicted vs. Actual Values (n={n_instances})", fontsize=SUBPLOT_TITLE_FONTSIZE)
+    plt.legend()
+    plt.grid(True)
+    plt.tick_params(axis='both', labelsize=TICK_LABEL_FONTSIZE)
+
+    if SAVE_PLOTS:
+        plot_save_path = os.path.join(PLOTS_OUTPUT_DIR, f"best_model_{type(best_model).__name__}_predicted_vs_actual.png")
+        try:
+            plt.savefig(plot_save_path, dpi=300, bbox_inches='tight')
+            print(f"\nDiagnostic plot saved to: {plot_save_path}")
+        except Exception as e:
+            print(f"Error saving diagnostic plot to {plot_save_path}: {e}")
+    plt.show()
+    plt.close()
+
+    # --- Plot 1: Residuals vs. Predicted ---
+    print("  Plotting Residuals vs. Predicted...")
+    plt.figure(figsize=(8, 6))
+    plt.scatter(y_pred, residuals, alpha=0.5, edgecolors='k', s=20)
+    plt.axhline(0, color='red', linestyle='--', lw=2, label='Zero Error')
+    plt.xlabel("Predicted Values (y_pred)", fontsize=AXIS_LABEL_FONTSIZE)
+    plt.ylabel("Residuals (Actual - Predicted)", fontsize=AXIS_LABEL_FONTSIZE)
+    plt.title(f"Residuals vs. Predicted Values (n={n_instances})", fontsize=SUBPLOT_TITLE_FONTSIZE)
+    plt.legend()
+    plt.grid(True)
+    plt.tick_params(axis='both', labelsize=TICK_LABEL_FONTSIZE)
+
+    if SAVE_PLOTS:
+        plot_save_path = os.path.join(PLOTS_OUTPUT_DIR, f"best_model_{type(best_model).__name__}_residuals_vs_predicted.png")
+        try:
+            plt.savefig(plot_save_path, dpi=300, bbox_inches='tight')
+            print(f"\nDiagnostic plot saved to: {plot_save_path}")
+        except Exception as e:
+            print(f"Error saving diagnostic plot to {plot_save_path}: {e}")
+    plt.show()
+    plt.close()
+
+    # --- Plot 2: Residual Distribution ---
+    print("  Plotting Residual Distribution...")
+    plt.figure(figsize=(8, 6))
+    sns.histplot(residuals, kde=True, bins=30)
+    plt.xlabel("Residuals (Actual - Predicted)", fontsize=AXIS_LABEL_FONTSIZE)
+    plt.ylabel("Frequency", fontsize=AXIS_LABEL_FONTSIZE)
+    plt.title(f"Distribution of Residuals (n={n_instances})", fontsize=SUBPLOT_TITLE_FONTSIZE)
+    plt.grid(True)
+    plt.tick_params(axis='both', labelsize=TICK_LABEL_FONTSIZE)
+
+    if SAVE_PLOTS:
+        plot_save_path = os.path.join(PLOTS_OUTPUT_DIR, f"best_model_{type(best_model).__name__}_residual_distribution.png")
+        try:
+            plt.savefig(plot_save_path, dpi=300, bbox_inches='tight')
+            print(f"\nDiagnostic plot saved to: {plot_save_path}")
+        except Exception as e:
+            print(f"Error saving diagnostic plot to {plot_save_path}: {e}")
+    plt.show()
+    plt.close()
+
+    # --- Plot 3: Feature Importance ---
+    print("  Processing Feature Importance...")
+    plt.figure(figsize=(8, 6))
+    feature_names = get_feature_names(preprocessor, X_test) # Pass original X_test type if eeded
+
+    importance_calculated = False
+    if PLOT_FEATURE_IMPORTANCE and feature_names is not None:
+        importance_scores = None
+        feature_type = None
+
+        # Try standard attributes first
+        if hasattr(best_model, 'feature_importances_'):
+            importance_scores = best_model.feature_importances_
+            feature_type = "Importance (Built-in)"
+            importance_calculated = True
+            print(f"    Using built-in '{feature_type}'.")
+        elif hasattr(best_model, 'coef_'):
+            importance_scores = np.abs(best_model.coef_)
+            if importance_scores.ndim > 1: # Handle potential multi-output coef shape
+                 importance_scores = importance_scores.mean(axis=0)
+            feature_type = "Coefficient Magnitude"
+            importance_calculated = True
+            print(f"    Using '{feature_type}'.")
+
+        # If standard attributes not found, try Permutation Importance
+        if not importance_calculated and CALCULATE_PERMUTATION_IMPORTANCE:
+            print(f"    Standard importance not found. Calculating Permutation Importance (n_repeats={N_PERMUTATION_REPEATS}, scoring='{PERMUTATION_SCORING}')...")
+            try:
+                X_test_perm = X_test.values if isinstance(X_test, pd.DataFrame) else X_test # Ensure X_test is numpy
+                start_perm = time.time()
+                perm_result = permutation_importance(
+                    best_model,
+                    X_test_perm, # Use test set for importance calculation
+                    y_test,
+                    n_repeats=N_PERMUTATION_REPEATS,
+                    random_state=RANDOM_STATE,
+                    scoring=PERMUTATION_SCORING,
+                    n_jobs=-1
+                )
+                duration_perm = time.time() - start_perm
+                importance_scores = perm_result.importances_mean
+                feature_type = f"Permutation Importance ({PERMUTATION_SCORING.split('_')[-1]})"
+                importance_calculated = True
+                print(f"    Permutation Importance calculated in {duration_perm:.2f} seconds.")
+            except Exception as e:
+                print(f"    Warning: Permutation Importance calculation failed. Error: {e}")
+
+        # Plot if importance scores were successfully obtained
+        if importance_calculated and importance_scores is not None:
+            if len(importance_scores) == len(feature_names):
+                print(f"    Plotting top {N_FEATURES_TO_SHOW} features by {feature_type}.")
+                feature_importance_df = pd.DataFrame({
+                    'Feature': feature_names,
+                    'Score': importance_scores
+                }).sort_values(by='Score', ascending=False).head(N_FEATURES_TO_SHOW)
+
+                sns.barplot(x='Score', y='Feature', data=feature_importance_df, palette='rocket')
+                plt.title(f"Top {N_FEATURES_TO_SHOW} Features by {feature_type}", fontsize=SUBPLOT_TITLE_FONTSIZE)
+                plt.xlabel("Importance Score", fontsize=AXIS_LABEL_FONTSIZE)
+                plt.ylabel("Feature", fontsize=AXIS_LABEL_FONTSIZE)
+                plt.tick_params(axis='x', labelsize=TICK_LABEL_FONTSIZE)
+                plt.tick_params(axis='y', labelsize=TICK_LABEL_FONTSIZE-1)
+                plt.tight_layout() # ADD THIS LINE
+
+            else:
+                 print(f"    Warning: Mismatch between number of features ({len(feature_names)}) and importance scores ({len(importance_scores)}). Skipping importance plot.")
+                 plt.title("Feature Importance (Error)", fontsize=SUBPLOT_TITLE_FONTSIZE - 2)
+                 plt.axis('off')
+        elif PLOT_FEATURE_IMPORTANCE: # Importance was desired but couldn't be calculated
+            print(f"    Note: Could not determine feature importance for model type '{type(best_model).__name__}'. Skipping plot.")
+            plt.title("Feature Importance (N/A)", fontsize=SUBPLOT_TITLE_FONTSIZE - 2)
+            plt.axis('off')
+
+    # Handle cases where plotting was disabled or feature names were missing
+    elif not PLOT_FEATURE_IMPORTANCE:
+        print("  Note: Feature importance plot disabled by configuration.")
+        plt.title("Feature Importance (Disabled)", fontsize=SUBPLOT_TITLE_FONTSIZE - 2)
+        plt.axis('off')
+    else: # feature_names must be None
+        print("  Note: Could not retrieve feature names. Skipping feature importance plot.")
+        plt.title("Feature Importance (No Names)", fontsize=SUBPLOT_TITLE_FONTSIZE - 2)
+        plt.axis('off')
+
+    if SAVE_PLOTS:
+        plot_save_path = os.path.join(PLOTS_OUTPUT_DIR, f"best_model_{type(best_model).__name__}_feature_importance.png")
+        try:
+            plt.savefig(plot_save_path, dpi=300, bbox_inches='tight')
+            print(f"\nDiagnostic plot saved to: {plot_save_path}")
+        except Exception as e:
+            print(f"Error saving diagnostic plot to {plot_save_path}: {e}")
+    plt.show()
+    plt.close()
+
+    # --- Plot 4: Confusion Matrix ---
+    print("  Plotting Confusion Matrix...")
+    plt.figure(figsize=(8, 6))
+
+    try:
+        # Create the confusion matrix
+        cm = confusion_matrix(y_test, np.round(y_pred), labels=np.unique(y_test), normalize=CONFUSION_MATRIX_NORMALIZATION)
+
+        # Create a ConfusionMatrixDisplay object
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=CONFUSION_MATRIX_DISPLAY_LABELS or np.unique(y_test))
+
+        # Plot the confusion matrix on the specified axis
+        disp.plot(cmap=plt.cm.Blues, values_format=".2f") # values_format for cleaner display
+
+        # Customize the subplot
+        plt.xlabel("Predicted Label", fontsize=AXIS_LABEL_FONTSIZE)
+        plt.ylabel("True Label", fontsize=AXIS_LABEL_FONTSIZE)
+        plt.title(f"Confusion Matrix (n={n_instances})", fontsize=SUBPLOT_TITLE_FONTSIZE)
+        plt.tick_params(axis='both', labelsize=TICK_LABEL_FONTSIZE)
+        plt.grid(False) # Remove grid lines for cleaner look
+
+    except Exception as e:
+        print(f"    Error: Could not create confusion matrix. Error: {e}")
+        plt.title("Confusion Matrix (Error)", fontsize=SUBPLOT_TITLE_FONTSIZE - 2)
+        plt.axis('off') # Turn off axis if there's an error
+
+    if SAVE_PLOTS:
+        plot_save_path = os.path.join(PLOTS_OUTPUT_DIR, f"best_model_{type(best_model).__name__}_confusion_matrix.png")
+        try:
+            plt.savefig(plot_save_path, dpi=300, bbox_inches='tight')
+            print(f"\nDiagnostic plot saved to: {plot_save_path}")
+        except Exception as e:
+            print(f"Error saving diagnostic plot to {plot_save_path}: {e}")
+    plt.show()
+    plt.close()
+
+# 9. Print all results to the console
+print("\n--- Model Evaluation Results ---")
+print(f"Model: {type(best_model).__name__}")
+print(f"Mean CV MAE from CSV: {best_model_val:.4f}")
+print(f"Test Set Size: {n_instances}")
+print(f"MAE: {mae:.4f}")
+print(f"MSE: {mse:.4f}")
+print(f"RMSE: {rmse:.4f}")
+print(f"R-squared: {r2:.4f}")
+print("\nConfusion Matrix:")
+print(cm)
+print(f"Macro F1-Score: {f1_macro:.3f}")
+print(f"Weighted F1-Score: {f1_weighted:.3f}")
+# Print F1-score for each class, handling missing classes
+all_possible_labels = range(6)  # Assuming labels are 0, 1, 2, 3, 4, 5
+f1_per_class = f1_score(y_test, np.round(y_pred), average=None, zero_division=0, labels=all_possible_labels)
+
+print("\nF1-Score per class:")
+for i, label in enumerate(all_possible_labels):
+    try:
+        f1 = f1_per_class[i]
+    except IndexError:
+        f1 = np.nan  # Handle cases where a class is missing
+    print(f"  Class {label}: {f1:.3f}")
 
 print("\nBest model visualization script finished.")
+
+plt.close('all')

@@ -64,8 +64,8 @@ MODELS_TO_TEST = {
     "Random Forest": RandomForestRegressor(n_estimators=100, random_state=RANDOM_STATE, n_jobs=-1), # Sensible default
     "Gradient Boosting": GradientBoostingRegressor(n_estimators=100, random_state=RANDOM_STATE), # Sensible default
     "Hist Gradient Boosting": HistGradientBoostingRegressor(random_state=RANDOM_STATE),
-     "SVR (Linear)": SVR(kernel='linear'), # Often slow
-    "SVR (RBF)": SVR(kernel='rbf'),
+    #"SVR (Linear)": SVR(kernel='linear'), # Often slow
+    #"SVR (RBF)": SVR(kernel='rbf'),
     "KNN": KNeighborsRegressor(n_neighbors=5)
 }
 
@@ -105,9 +105,9 @@ PARAM_GRIDS = {
         'max_leaf_nodes': [31, 63], # Default is 31
         'max_depth': [None] # Often controlled by max_leaf_nodes
     },
-    # "SVR (Linear)": { # Often slow
-    #     'C': [0.1, 1, 10]
-    # },
+    "SVR (Linear)": { # Often slow
+        'C': [0.1, 1, 10]
+    },
     "SVR (RBF)": { # Often slow
         'C': [1, 10, 100], # Wider range often needed
         'gamma': ['scale', 0.1, 1] # 'scale' is often a good default
@@ -336,6 +336,7 @@ if best_model_name and best_final_estimator:
 
     try:
         # Predict on the test set using the best_final_estimator object
+        y_pred_test = best_final_estimator.predict(X_test)
         y_pred_test = best_final_estimator.predict(X_test)
 
         # Calculate final metrics on the test set
