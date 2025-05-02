@@ -6,8 +6,13 @@ from sklearn.compose import ColumnTransformer
 import warnings
 import os
 import joblib # For saving/loading sklearn objects and data efficiently
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # --- Configuration ---
+
+SUBSAMPLE_DAMAGE_0 = 25  # Number of rows to keep for damage level 0.  Set to None to disable.
+
 INPUT_CSV_PATH = 'cleaned_data_latlong.csv' # Output from the previous cleaning script
 TARGET_COLUMN = 'degree_of_damage_u'
 # BALANCING_ENABLED = True # Set BALANCING_ENABLED to True to apply Random Oversampling to the training data
@@ -107,9 +112,23 @@ except Exception as e:
     print(f"Error loading CSV: {e}")
     exit()
 
-# 2. Separate Target Variable (y)
+# 2. Subsample Damage Level 0 (Before Splitting)
+if SUBSAMPLE_DAMAGE_0 is not None:
+    print(f"\nStep 2: Subsampling damage level 0 to {SUBSAMPLE_DAMAGE_0} rows...")
+    damage_0_indices = df[df[TARGET_COLUMN] == 0].index
+    if len(damage_0_indices) > SUBSAMPLE_DAMAGE_0:
+        random_indices = np.random.choice(damage_0_indices, SUBSAMPLE_DAMAGE_0, replace=False)
+        other_indices = df.index.difference(damage_0_indices)
+        df = df.loc[np.concatenate([random_indices, other_indices])]
+        df = df.sample(frac=1, random_state=RANDOM_STATE).reset_index(drop=True) # Shuffle the dataframe
+        print(f"  Subsampled DataFrame shape: {df.shape}")
+    else:
+        print(f"  Damage level 0 has {len(damage_0_indices)} rows, which is <= SUBSAMPLE_DAMAGE_0. Skipping subsampling.")
+
+
+# 3. Separate Target Variable (y)
 # ... (same as before) ...
-print(f"\nStep 2: Separating target variable '{TARGET_COLUMN}'...")
+print(f"\nStep 3: Separating target variable '{TARGET_COLUMN}'...")
 if TARGET_COLUMN not in df.columns:
     print(f"Error: Target column '{TARGET_COLUMN}' not found in the loaded data.")
     exit()
@@ -122,16 +141,16 @@ except Exception as e:
     print(f"Warning: Could not convert target variable '{TARGET_COLUMN}' to integer. Error: {e}")
     print(f"  Keeping original type: {y.dtype}")
 
-# 3. Filter Feature Set (X)
+# 4. Filter Feature Set (X)
 # ... (same as before) ...
-print("\nStep 3: Filtering feature set (X)...")
+print("\nStep 4: Filtering feature set (X)...")
 X = filter_features(df, TARGET_COLUMN, KEYWORDS_TO_REMOVE_FROM_X)
 print(f"  Shape of initial feature set X: {X.shape}")
 
 
-# 4. Identify Feature Types in Filtered X
+# 5. Identify Feature Types in Filtered X
 # ... (same as before) ...
-print("\nStep 4: Identifying numeric and categorical features in the filtered X...")
+print("\nStep 5: Identifying numeric and categorical features in the filtered X...")
 numeric_features = X.select_dtypes(include=np.number).columns.tolist()
 categorical_features = X.select_dtypes(include='object').columns.tolist()
 all_features = numeric_features + categorical_features
@@ -141,9 +160,9 @@ print(f"  Identified {len(numeric_features)} numeric features.")
 print(f"  Identified {len(categorical_features)} categorical features.")
 
 
-# 5. Define Preprocessing Steps
+# 6. Define Preprocessing Steps
 # ... (same as before) ...
-print("\nStep 5: Defining preprocessing steps...")
+print("\nStep 6: Defining preprocessing steps...")
 numeric_transformer = StandardScaler()
 categorical_transformer = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
 preprocessor = ColumnTransformer(
@@ -156,9 +175,9 @@ preprocessor = ColumnTransformer(
 print("  Preprocessor defined (StandardScaler for numeric, OneHotEncoder for categorical).")
 
 
-# 6. Split Data into Training and Testing Sets
+# 7. Split Data into Training and Testing Sets
 # ... (same as before) ...
-print("\nStep 6: Splitting data into training and testing sets...")
+print("\nStep 7: Splitting data into training and testing sets...")
 try:
     X_train, X_test, y_train, y_test = train_test_split(
         X, y,
@@ -180,8 +199,8 @@ print(f"    y_train distribution before processing:\n{y_train.value_counts(norma
 print(f"    y_test distribution:\n{y_test.value_counts(normalize=True).sort_index()}")
 
 
-# 7. Apply Preprocessing
-print("\nStep 7: Applying preprocessing (fitting on train, transforming train and test)...")
+# 8. Apply Preprocessing
+print("\nStep 8: Applying preprocessing (fitting on train, transforming train and test)...")
 # Fit ONLy on X_train
 preprocessor.fit(X_train)
 # Transform both
@@ -298,3 +317,52 @@ else:
 
 
 print("\nML preprocessing finished.")
+
+# --- Visualization Code (Subplots) ---
+print("\n--- Starting Visualization (Subplots) ---")
+
+fig, axes = plt.subplots(2, 2, figsize=(16, 12))  # Create a 2x2 grid of subplots
+fig.suptitle('Distribution of Degree of Damage', fontsize=16)
+
+# Define the order of categories for the countplots
+category_order = list(range(6))  # [0, 1, 2, 3, 4, 5]
+
+# 1. Original Data
+sns.countplot(x=y, palette='viridis', ax=axes[0, 0], order=category_order)
+axes[0, 0].set_title('Original Data')
+axes[0, 0].set_xlabel('Degree of Damage')
+axes[0, 0].set_ylabel('Number of Occurrences')
+axes[0, 0].set_xticks(ticks=range(6), labels=[0, 1, 2, 3, 4, 5])
+axes[0, 0].set_xlim(-0.5, 5.5)  # Force x-axis limits to include all categories
+
+# 2. Training Data (Before Balancing)
+sns.countplot(x=y_train, palette='viridis', ax=axes[0, 1], order=category_order)
+axes[0, 1].set_title('Training Data (Before Balancing)')
+axes[0, 1].set_xlabel('Degree of Damage')
+axes[0, 1].set_ylabel('Number of Occurrences')
+axes[0, 1].set_xticks(ticks=range(6), labels=[0, 1, 2, 3, 4, 5])
+axes[0, 1].set_xlim(-0.5, 5.5)  # Force x-axis limits to include all categories
+
+# 3. Training Data (After Balancing) - Conditional
+if 'y_train_resampled_series' in locals():
+    sns.countplot(x=y_train_resampled_series, palette='viridis', ax=axes[1, 0], order=category_order)
+    axes[1, 0].set_title('Training Data (After Balancing)')
+    axes[1, 0].set_xlabel('Degree of Damage')
+    axes[1, 0].set_ylabel('Number of Occurrences')
+    axes[1, 0].set_xticks(ticks=range(6), labels=[0, 1, 2, 3, 4, 5])
+    axes[1, 0].set_xlim(-0.5, 5.5)  # Force x-axis limits to include all categories
+else:
+    axes[1, 0].text(0.5, 0.5, 'No balancing applied', ha='center', va='center')
+    axes[1, 0].axis('off')  # Turn off the axes if no plot is drawn
+
+# 4. Test Data
+sns.countplot(x=y_test, palette='viridis', ax=axes[1, 1], order=category_order)
+axes[1, 1].set_title('Test Data')
+axes[1, 1].set_xlabel('Degree of Damage')
+axes[1, 1].set_ylabel('Number of Occurrences')
+axes[1, 1].set_xticks(ticks=range(6), labels=[0, 1, 2, 3, 4, 5])
+axes[1, 1].set_xlim(-0.5, 5.5)  # Force x-axis limits to include all categories
+
+plt.tight_layout(rect=[0, 0.03, 1, 0.95])  # Adjust layout to prevent overlapping titles
+plt.savefig('degree_of_damage_subplots.png')
+plt.show()
