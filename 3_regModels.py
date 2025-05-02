@@ -63,7 +63,7 @@ MODELS_TO_TEST = {
     "Decision Tree": DecisionTreeRegressor(max_depth=10, random_state=RANDOM_STATE), # Sensible default if not tuned
     "Random Forest": RandomForestRegressor(n_estimators=100, random_state=RANDOM_STATE, n_jobs=-1), # Sensible default
     "Gradient Boosting": GradientBoostingRegressor(n_estimators=100, random_state=RANDOM_STATE), # Sensible default
-    "Hist Gradient Boosting": HistGradientBoostingRegressor(random_state=RANDOM_STATE),
+    #"Hist Gradient Boosting": HistGradientBoostingRegressor(random_state=RANDOM_STATE),
     # "SVR (Linear)": SVR(kernel='linear'), # Often slow
     "SVR (RBF)": SVR(kernel='rbf'),
     "KNN": KNeighborsRegressor(n_neighbors=5)

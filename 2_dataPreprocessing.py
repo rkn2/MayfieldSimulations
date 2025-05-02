@@ -10,8 +10,18 @@ import joblib # For saving/loading sklearn objects and data efficiently
 # --- Configuration ---
 INPUT_CSV_PATH = 'cleaned_data_latlong.csv' # Output from the previous cleaning script
 TARGET_COLUMN = 'degree_of_damage_u'
-BALANCING_ENABLED = False # Set BALANCING_ENABLED to True to apply Random Oversampling to the training data
-BALANCING_STRATEGY = 'auto' # Strategy for RandomOverSampler, 'auto' balances all minority classes to match majority
+# BALANCING_ENABLED = True # Set BALANCING_ENABLED to True to apply Random Oversampling to the training data
+# BALANCING_STRATEGY = 'auto' # Strategy for RandomOverSampler, 'auto' balances all minority classes to match majority
+
+# --- Balancing Configuration ---
+# Choose the balancing method: 'RandomOverSampler', 'SMOTE', or None
+BALANCING_METHOD = 'RandomOverSampler' # Options: 'RandomOverSampler', 'SMOTE', None
+# Strategy for the chosen sampler. 'auto' typically balances all minority classes.
+# For SMOTE, 'auto' is equivalent to 'not majority'. Other options exist like 'minority', 'not majority', 'all'.
+# For RandomOverSampler, 'auto' is equivalent to 'not majority'.
+SAMPLING_STRATEGY = 'auto'
+# Note: SMOTE has other parameters like k_neighbors, which we'll leave as default for now.
+
 
 # Keywords to identify feature columns to REMOVE from X (case-insensitive)
 KEYWORDS_TO_REMOVE_FROM_X = [
@@ -34,13 +44,23 @@ OUTPUT_TEST_Y_PATH = f'{OUTPUT_DIR}/y_test.pkl'
 OUTPUT_PREPROCESSOR_PATH = f'{OUTPUT_DIR}/preprocessor.pkl'
 
 # --- Optional: Import imbalanced-learn ---
-if BALANCING_ENABLED:
+sampler_class = None
+if BALANCING_METHOD in ['RandomOverSampler', 'SMOTE']:
     try:
-        from imblearn.over_sampling import RandomOverSampler
+        from imblearn.over_sampling import RandomOverSampler, SMOTE
+        if BALANCING_METHOD == 'RandomOverSampler':
+            sampler_class = RandomOverSampler
+            print("Selected balancing method: RandomOverSampler")
+        elif BALANCING_METHOD == 'SMOTE':
+            sampler_class = SMOTE
+            print("Selected balancing method: SMOTE")
     except ImportError:
-        print("Error: 'imbalanced-learn' library not found, but BALANCING_ENABLED is True.")
+        print(f"Error: 'imbalanced-learn' library not found, but BALANCING_METHOD is set to '{BALANCING_METHOD}'.")
         print("Please install it: pip install imbalanced-learn")
         exit()
+elif BALANCING_METHOD is not None:
+    print(f"Warning: Unknown BALANCING_METHOD '{BALANCING_METHOD}'. Balancing will be disabled.")
+    BALANCING_METHOD = None # Disable balancing if method is unknown
 
 # --- Helper Functions ---
 # (filter_features function remains the same as before)
@@ -71,10 +91,11 @@ def filter_features(df, target_col, keywords_to_remove):
 # --- Main Preprocessing Script ---
 
 print(f"Starting ML preprocessing for {INPUT_CSV_PATH}")
-print(f"Balancing Enabled: {BALANCING_ENABLED}")
+print(f"Selected Balancing Method: {BALANCING_METHOD if BALANCING_METHOD else 'None'}")
+if BALANCING_METHOD:
+    print(f"Sampling Strategy: {SAMPLING_STRATEGY}")
 
 # 1. Load Cleaned Data
-# ... (same as before) ...
 print("\nStep 1: Loading cleaned data...")
 try:
     df = pd.read_csv(INPUT_CSV_PATH, low_memory=False)
@@ -185,37 +206,63 @@ print(f"    X_train_processed shape: {X_train_processed_df.shape}")
 print(f"    X_test_processed shape:  {X_test_processed_df.shape}")
 
 
-# 8. Apply Balancing (Optional - only to training data)
-print("\nStep 8: Applying Balancing (if enabled)...")
+# Check if a balancing method was chosen and the sampler class was successfully imported
+if BALANCING_METHOD and sampler_class:
+    print(f"  Balancing is ENABLED using {BALANCING_METHOD} (strategy='{SAMPLING_STRATEGY}')...")
+    # Instantiate the selected sampler
+    # Note: SMOTE might require numeric data only. Our preprocessor converts categories, so this should be okay.
+    #       If using sparse matrices from OneHotEncoder, check sampler compatibility.
+    try:
+        sampler = sampler_class(sampling_strategy=SAMPLING_STRATEGY, random_state=RANDOM_STATE)
+        print(f"  Instantiated {BALANCING_METHOD} sampler.")
+    except Exception as e:
+        print(f"Error instantiating sampler {BALANCING_METHOD}: {e}")
+        print("  Skipping balancing.")
+        BALANCING_METHOD = None # Disable balancing if instantiation fails
 
-# Define final variables to hold the training data (either original processed or resampled)
-X_train_final = X_train_processed_df
-y_train_final = y_train
+    if BALANCING_METHOD: # Check again in case instantiation failed
+        try:
+            # Apply resampling ONLY to the processed training data
+            # Ensure y_train is in the correct format (usually a Series or 1D array)
+            print(f"  Applying {BALANCING_METHOD}.fit_resample to training data...")
+            X_train_resampled, y_train_resampled = sampler.fit_resample(X_train_processed_df, y_train)
+            print(f"  Resampling complete.")
+            print(f"    Original y_train distribution:\n{y_train.value_counts().sort_index()}")
+            # Convert resampled y to Series for value_counts
+            y_train_resampled_series = pd.Series(y_train_resampled)
+            print(f"    Resampled y_train distribution:\n{y_train_resampled_series.value_counts().sort_index()}")
+            print(f"    X_train_resampled shape: {X_train_resampled.shape}")
 
-if BALANCING_ENABLED:
-    print(f"  Balancing is ENABLED. Applying RandomOversampler (strategy='{BALANCING_STRATEGY}')...")
-    ros = RandomOverSampler(sampling_strategy=BALANCING_STRATEGY, random_state=RANDOM_STATE)
+            # Update final variables to the resampled data
+            y_train_final = y_train_resampled_series # Use the Series version
 
-    # Apply resampling ONLY to the processed training data
-    X_train_resampled, y_train_resampled = ros.fit_resample(X_train_processed_df, y_train)
+            # Convert resampled X back to DataFrame if possible and original was DataFrame
+            if isinstance(X_train_processed_df, pd.DataFrame) and feature_names_out is not None:
+                 try:
+                     # Create DataFrame with original column names, index will be reset
+                     X_train_final = pd.DataFrame(X_train_resampled, columns=feature_names_out)
+                     print("  Converted resampled X_train back to DataFrame.")
+                 except Exception as e:
+                     print(f"Warning: Could not convert resampled X_train back to DataFrame: {e}. Keeping as NumPy array.")
+                     X_train_final = X_train_resampled # Keep as numpy array
+            else:
+                X_train_final = X_train_resampled # Keep as numpy array if original wasn't DataFrame or names unavailable
 
-    print(f"  Oversampling complete.")
-    print(f"    Original y_train distribution:\n{y_train.value_counts()}")
-    print(f"    Resampled y_train distribution:\n{pd.Series(y_train_resampled).value_counts()}")
-    print(f"    X_train_resampled shape: {X_train_resampled.shape}")
-
-    # Update final variables to the resampled data
-    y_train_final = y_train_resampled
-    # Convert resampled X back to DataFrame if possible and needed
-    if isinstance(X_train_processed_df, pd.DataFrame) and feature_names_out is not None:
-         X_train_final = pd.DataFrame(X_train_resampled, columns=feature_names_out) # Index is lost here, add if needed
-    else:
-        X_train_final = X_train_resampled # Keep as numpy array
+        except Exception as e:
+            print(f"Error during {BALANCING_METHOD} fit_resample: {e}")
+            print("  Balancing failed. Using original processed training data.")
+            # Reset final variables to original processed data if resampling fails
+            X_train_final = X_train_processed_df
+            y_train_final = y_train
+            BALANCING_METHOD = None # Mark balancing as failed/disabled
 
 else:
-    print("  Balancing is DISABLED. Using original processed training data.")
-    # X_train_final and y_train_final already hold the correct data
-
+    # This block executes if BALANCING_METHOD was None initially, or if sampler_class failed to import,
+    # or if sampler instantiation failed, or if fit_resample failed.
+    if BALANCING_METHOD: # Only print if a method was *intended* but failed earlier
+         print(f"  Balancing method '{BALANCING_METHOD}' was specified but could not be applied.")
+    print("  Using original processed training data (no balancing applied).")
+    # X_train_final and y_train_final already hold the correct (original processed) data
 
 # 9. Save Processed Data (Optional)
 print("\nStep 9: Saving final data...")
@@ -236,8 +283,10 @@ if SAVE_PROCESSED_DATA:
         joblib.dump(preprocessor, OUTPUT_PREPROCESSOR_PATH)
 
         print(f"  Successfully saved:")
-        print(f"    - Train X: {OUTPUT_TRAIN_X_PATH} (Resampled: {BALANCING_ENABLED})")
-        print(f"    - Train y: {OUTPUT_TRAIN_Y_PATH} (Resampled: {BALANCING_ENABLED})")
+        # Indicate which balancing method was actually applied (or None)
+        applied_balancing = BALANCING_METHOD if 'y_train_resampled_series' in locals() else 'None'
+        print(f"    - Train X: {OUTPUT_TRAIN_X_PATH} (Balancing Applied: {applied_balancing})")
+        print(f"    - Train y: {OUTPUT_TRAIN_Y_PATH} (Balancing Applied: {applied_balancing})")
         print(f"    - Test X:  {OUTPUT_TEST_X_PATH}")
         print(f"    - Test y:  {OUTPUT_TEST_Y_PATH}")
         print(f"    - Preprocessor: {OUTPUT_PREPROCESSOR_PATH}")
