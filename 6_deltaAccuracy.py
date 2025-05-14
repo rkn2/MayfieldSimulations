@@ -41,8 +41,8 @@ except ImportError:
 
 # --- Configuration ---
 DATA_DIR = 'processed_ml_data'
-BASE_RESULTS_DIR = 'cluster_importance_results_loaded_params'  # New results directory
-BEST_PARAMS_CSV_PATH = os.path.join(DATA_DIR, 'model_tuned_cv_results.csv')  # Path to CSV from your benchmarking script
+BASE_RESULTS_DIR = 'cluster_importance_results_loaded_params'
+BEST_PARAMS_CSV_PATH = os.path.join(DATA_DIR, 'model_tuned_cv_results.csv')
 
 TRAIN_X_PATH = os.path.join(DATA_DIR, 'X_train_processed.pkl')
 TRAIN_Y_PATH = os.path.join(DATA_DIR, 'y_train.pkl')
@@ -53,27 +53,79 @@ TEST_Y_PATH = os.path.join(DATA_DIR, 'y_test.pkl')
 USER_DEFINED_CLUSTERING_THRESHOLD = 0.7
 N_TOP_CLUSTERS_TO_PLOT = 10
 RANDOM_STATE = 42
-# N_SPLITS_CV = 5 # Not needed for GridSearchCV in this script anymore
 
 CLUSTERING_LINKAGE_METHOD = 'average'
-SCORING_METRIC_FOR_IMPORTANCE = 'f1_weighted'  # Metric for permutation importance
+SCORING_METRIC_FOR_IMPORTANCE = 'f1_weighted'
 
-# Define all models you want to evaluate.
-# Names should match the 'Model' column in your BEST_PARAMS_CSV_PATH
 MODELS_TO_EVALUATE = {
     "Logistic Regression": LogisticRegression(random_state=RANDOM_STATE, max_iter=2000),
-    # Solver will be set from params
     "Decision Tree": DecisionTreeClassifier(random_state=RANDOM_STATE),
     "KNN": KNeighborsClassifier(),
     "Random Forest": RandomForestClassifier(random_state=RANDOM_STATE, n_jobs=-1),
-    "Hist Gradient Boosting": HistGradientBoostingClassifier(random_state=RANDOM_STATE),  # Renamed for consistency
-    "Gradient Boosting": GradientBoostingClassifier(random_state=RANDOM_STATE),  # Added back
+    "Hist Gradient Boosting": HistGradientBoostingClassifier(random_state=RANDOM_STATE),
+    "Gradient Boosting": GradientBoostingClassifier(random_state=RANDOM_STATE),
 }
 if XGB_AVAILABLE:
-    MODELS_TO_EVALUATE["XGBoost"] = xgb.XGBClassifier(random_state=RANDOM_STATE,
-                                                      use_label_encoder=False)  # eval_metric from params
+    MODELS_TO_EVALUATE["XGBoost"] = xgb.XGBClassifier(random_state=RANDOM_STATE, use_label_encoder=False)
 if LGBM_AVAILABLE:
     MODELS_TO_EVALUATE["LightGBM"] = lgb.LGBMClassifier(random_state=RANDOM_STATE, verbosity=-1)
+
+# --- PROPOSED CLUSTER LABELS (Mapping Representative Feature to Descriptive Label) ---
+# This dictionary should be comprehensive for the chosen threshold.
+PROPOSED_CLUSTER_LABELS = {
+    "cat__construction_type_u_maonsry_un": "Unspecified Masonry Construction Details",
+    "cat__wall_cladding_u_vinyl_panel": "Vinyl Panel Cladding & Specific Retrofit Type",
+    "cat__building_use_during_tornado_reisdential": "Residential Use During Tornado",  # Simplified
+    "cat__construction_type_u_un": "Unspecified Construction & Wall System",
+    "cat__soffit_present_u_un": "Rear Large Door Presence & Unspecified Soffit/Metal Roof Cover",
+    "cat__door_present_s_no": "South-Facing Door Presence (Binary)",
+    "num__parking_storage_facility": "Storage Occupancy & Facility Characteristics",
+    "cat__door_present_n_no": "North-Facing/Front Door Presence & Stone Wall Cladding",
+    "num__owner_government": "Government-Owned Utility Buildings with Specific Construction/Retrofit Details",
+    "cat__occupany_u_religious": "Religious Occupancy with Stone/Other Cladding",
+    "cat__masonry_leaves_triple_leaf": "Triple Leaf Masonry & Unspecified Wooden Wall Substrate",
+    "cat__structural_wall_system_u_masonry_block_reinforced": "Reinforced Masonry Block Wall System with Steel/Metal Components",
+    "cat__r2wall_attachment_u_metal_straps": "Roof-to-Wall Attachment (Metal Straps/Unspecified) & Right Large Door Presence",
+    "cat__construction_type_u_steel_frame": "Steel Frame Construction with Concrete Roof Substrate & Wood Horizontal Material",
+    "cat__front_elevation_orientation_n": "North-Facing Front Elevation with Continuous Wooden Sheathing Substrate",
+    "cat__mwfrs_u_roof_un": "Building Height/Storey & Roof Characteristics",
+    "cat__occupany_u_factory": "Factory Occupancy & Building Dimensions with Unspecified Masonry/Cladding",
+    "num__wall_fenestration_per_e": "East Wall Fenestration Percentage",  # Simplified
+    "num__const_material_h_othr": "Unreinforced Masonry Block Wall & Other Horizontal Construction Material",
+    "num__const_material_v_rf_conc": "Diverse Heavy Construction Materials (Stone, Concrete, Masonry) & Wall Anchorage",
+    "cat__foundation_type_u_concrete_piers": "Concrete Pier Foundation & Wooden Truss Roof with Back Wall Fenestration Protection Status",
+    "cat__wall_fenesteration_protection_front_no": "Fenestration Protection Details & Religious/Assembly Occupancy Characteristics",
+    "cat__front_elevation_orientation_s": "South or West Front Elevation Orientation",
+    "cat__retrofit_present_u_yes": "Retrofit Presence & Type with Specific Building Setting/Components",
+    "num__const_material_v_brick": "Brick Construction Material (Vertical/Horizontal) & Wood Vertical Material",
+    "cat__masonry_leaves_double_leaf": "Masonry Leaf Type (Single/Double) & Brick Cladding",
+    "cat__roof_substrate_type_u_dimensional_lumber": "Roof Substrate Type (Dimensional Lumber or Unspecified)",
+    "cat__construction_type_u_steel_frame_masonry_shear_wall": "Steel Frame with Masonry Shear Wall Construction Details",
+    "cat__soffit_type_u_not_applicable": "Soffit Presence/Type & Slab-on-Grade Foundation",
+    "num__roof_slope_u": "General Building Typology & Use (Residential/Business Focus)",
+    "cat__buidling_use_before_tornado_not_in_use": "Unoccupied/Not-in-Use Buildings with Specific Roof/Soffit Details",
+    "num__longitude": "Geographic Location & Stone Foundation",
+    "num__wall_fenesteration_per_back": "Back Wall Fenestration Percentage & End-of-Row Urban Setting",
+    "num__wall_fenesteration_per_front": "Front/West Wall Fenestration & Stone Horizontal Material with Complex Roof/Vinyl Soffit",
+    "num__random_feature": "Random Feature (Isolated)",  # Simplified
+    "cat__buidling_use_before_tornado_educational": "NGO-Owned Educational Wood Frame Buildings (Year Built Unspecified)",
+    "cat__occupany_u_educational": "Educational Occupancy with Recent Retrofit & Unspecified Moment Frame",
+    "num__single_unit": "Building Unit Type (Single/Multiple) & Masonry Stem Wall Foundation",
+    "cat__occupany_u_museum": "Museum Occupancy with Early Retrofit Year",
+    "cat__mwfrs_u_wall_wall_diaphragm_masonry": "Wall Diaphragm Material (Masonry/Wood) & Solid Brick Wythe System",
+    "cat__retrofit_year_u_un": "Retrofit Year (Unspecified or Very Old) & Weatherboard Cladding",
+    "cat__roof_cover_u_slate": "Slate Roof Cover",  # Simplified
+    "cat__retrofit_type_u_steel_bracing": "Steel Bracing Retrofit Type",  # Simplified
+    "cat__construction_type_u_steel_light_frame": "Steel Light Frame Construction",  # Simplified
+    "cat__foundation_type_u_stone_un": "Unspecified Stone Foundation",  # Simplified
+    "num__sub_national_heritage__list": "Sub-National Heritage List Status",  # Simplified
+    "cat__wall_cladding_u_wood_ot": "Wood/Other Wall Cladding",  # Simplified
+    "cat__retrofit_type_u_reinforced_masonry_awning_window_covers": "Specific Retrofit (Reinforced Masonry Awning/Window Covers)",
+    # Simplified
+    "num__const_material_h_mud": "Horizontal Mud Construction Material",  # Simplified
+    "num__const_material_v_mud": "Vertical Mud Construction Material",  # Simplified
+    "cat__building_in_use_during_tornado_yes": "Building in Use During Tornado (Yes)"  # Simplified
+}
 
 
 # --- Helper Functions ---
@@ -160,7 +212,6 @@ def get_selected_features_by_clustering(original_df, distance_thresh, linkage_me
 
 
 def load_best_parameters(params_csv_path):
-    """Loads best parameters from the CSV file generated by the benchmarking script."""
     print(f"\nLoading best parameters from: {params_csv_path}")
     try:
         params_df = pd.read_csv(params_csv_path)
@@ -168,18 +219,16 @@ def load_best_parameters(params_csv_path):
         for _, row in params_df.iterrows():
             model_name = row['Model']
             try:
-                # The 'Best Params' column is a string representation of a dict
                 params_str = row['Best Params']
                 if pd.isna(params_str) or params_str.lower() == 'n/a' or params_str == '{}':
-                    model_best_params[model_name] = {}  # Default if no params or error
+                    model_best_params[model_name] = {}
                     print(f"  No valid parameters found for {model_name}, will use defaults.")
                 else:
-                    # Safely evaluate the string to a dictionary
                     best_params_dict = ast.literal_eval(params_str)
                     model_best_params[model_name] = best_params_dict
             except Exception as e:
                 print(f"  Warning: Could not parse params for {model_name}: {e}. Using default params.")
-                model_best_params[model_name] = {}  # Fallback to default
+                model_best_params[model_name] = {}
         print("Best parameters loaded.")
         return model_best_params
     except FileNotFoundError:
@@ -201,15 +250,13 @@ def main():
     os.makedirs(results_subdir, exist_ok=True)
 
     print(
-        f"Starting Multi-Model Cluster Importance (with Loaded Params) for THRESHOLD = {current_clustering_threshold}")
+        f"Starting Multi-Model Cluster Importance (with Loaded Params & Descriptive Labels) for THRESHOLD = {current_clustering_threshold}")
 
-    # --- 0. Load Pre-Tuned Best Parameters ---
     all_best_params = load_best_parameters(BEST_PARAMS_CSV_PATH)
     if all_best_params is None:
         print("Could not load best parameters. Exiting.")
         return
 
-    # --- 1. Load Data ---
     X_train_orig = load_pickle_data(TRAIN_X_PATH, "original X_train")
     y_train_orig = load_pickle_data(TRAIN_Y_PATH, "original y_train")
     X_test_orig = load_pickle_data(TEST_X_PATH, "original X_test")
@@ -233,70 +280,56 @@ def main():
     y_test_ravel = y_test_orig.values.ravel() if isinstance(y_test_orig,
                                                             (pd.Series, pd.DataFrame)) else y_test_orig.ravel()
 
-    # --- 2. Feature Selection ---
     if not isinstance(X_train_sanitized, pd.DataFrame) or X_train_sanitized.shape[1] <= 1:
         print(
             "Warning: X_train is not a suitable DataFrame for clustering or has too few features. Using all features.")
-        selected_features = X_train_sanitized.columns.tolist() if isinstance(X_train_sanitized, pd.DataFrame) else [
+        selected_features_representatives = X_train_sanitized.columns.tolist() if isinstance(X_train_sanitized,
+                                                                                             pd.DataFrame) else [
             f"feature_{i}" for i in range(X_train_sanitized.shape[1])]
     else:
         print(f"\nPerforming feature selection with clustering threshold: {current_clustering_threshold}...")
-        selected_features = get_selected_features_by_clustering(
+        selected_features_representatives = get_selected_features_by_clustering(
+            # This returns representative feature names
             X_train_sanitized,
             current_clustering_threshold,
             CLUSTERING_LINKAGE_METHOD
         )
 
-    if not selected_features:
+    if not selected_features_representatives:
         print("Error: No features selected by clustering. Cannot proceed.")
         return
 
-    num_selected_features = len(selected_features)
+    num_selected_features = len(selected_features_representatives)
     print(f"Number of features (clusters) selected: {num_selected_features}")
     if num_selected_features == 0:
         print("No features selected, stopping analysis.")
         return
 
     if isinstance(X_train_sanitized, pd.DataFrame):
-        X_train_selected = X_train_sanitized[selected_features]
-        X_test_selected = X_test_sanitized[selected_features]
+        X_train_selected = X_train_sanitized[selected_features_representatives]
+        X_test_selected = X_test_sanitized[selected_features_representatives]
     else:
         print("Warning: Feature selection on NumPy array requires careful index mapping.")
         X_train_selected = X_train_sanitized
         X_test_selected = X_test_sanitized
 
-    # --- 3. Train Models with Loaded Parameters (No GridSearchCV) ---
     print("\n--- Training models with pre-loaded best parameters ---")
     trained_models = {}
 
     for model_name, model_template in MODELS_TO_EVALUATE.items():
         print(f"  Training model: {model_name}...")
-        model_params = all_best_params.get(model_name, {})  # Get params for this model
-
-        # Create a new instance to ensure fresh state
-        current_model = MODELS_TO_EVALUATE[model_name]  # This gets the template
-
-        # Some models might have parameters that are not settable after init (e.g. n_jobs for RF)
-        # or specific ways to handle them (e.g. eval_metric for XGB).
-        # For simplicity, we try set_params. More robust handling might be needed for complex cases.
+        model_params = all_best_params.get(model_name, {})
+        current_model = MODELS_TO_EVALUATE[model_name]
         try:
-            # Filter out params not applicable to the current model instance to avoid errors
             valid_params = {k: v for k, v in model_params.items() if hasattr(current_model, k)}
-
-            # Special handling for XGBoost eval_metric if it was in params
-            # and not a direct parameter of XGBClassifier constructor used in MODELS_TO_EVALUATE
             if model_name == "XGBoost" and 'eval_metric' in model_params and 'eval_metric' not in valid_params:
-                # eval_metric is often passed to .fit() for XGB, not set_params directly on classifier object
-                # if it's not a constructor param. We'll assume it was handled by the original tuning.
-                pass  # For now, we rely on the constructor or default.
-
+                pass
             if valid_params:
                 current_model.set_params(**valid_params)
                 print(f"    Set parameters for {model_name}: {valid_params}")
             else:
                 print(
                     f"    Using default parameters for {model_name} as no valid pre-tuned params were found/applicable.")
-
             current_model.fit(X_train_selected, y_train_ravel)
             trained_models[model_name] = current_model
             print(f"    Successfully trained {model_name}.")
@@ -309,7 +342,6 @@ def main():
         print("No models successfully trained. Cannot proceed with feature importance.")
         return
 
-    # --- 4. Calculate Permutation Importance for EACH trained model ---
     all_model_importances_list = []
     print(f"\nCalculating Permutation Importance for selected features using all trained models...")
 
@@ -329,7 +361,7 @@ def main():
         print(f"  Calculating for model: {model_name}...")
         try:
             perm_importance_result = permutation_importance(
-                model_instance,  # Use the model trained with pre-loaded params
+                model_instance,
                 X_test_selected,
                 y_test_ravel,
                 scoring=perm_scorer,
@@ -337,9 +369,13 @@ def main():
                 random_state=RANDOM_STATE,
                 n_jobs=-1
             )
-            for i, feature_name in enumerate(selected_features):
+            # Map representative feature name to descriptive cluster label
+            for i, rep_feature_name in enumerate(selected_features_representatives):
+                descriptive_label = PROPOSED_CLUSTER_LABELS.get(rep_feature_name,
+                                                                rep_feature_name)  # Fallback to rep_feature if no label
                 all_model_importances_list.append({
-                    'Feature (Cluster Representative)': feature_name,
+                    'Cluster Label': descriptive_label,  # Use descriptive label
+                    'Representative Feature': rep_feature_name,  # Keep original representative for reference
                     'Model': model_name,
                     'Importance (Mean Drop in Score)': perm_importance_result.importances_mean[i],
                     'Importance (Std Dev)': perm_importance_result.importances_std[i]
@@ -353,54 +389,57 @@ def main():
 
     all_importances_df = pd.DataFrame(all_model_importances_list)
 
-    max_importance_per_feature = all_importances_df.groupby('Feature (Cluster Representative)')[
+    # Determine Top N clusters based on max importance of the *descriptive label*
+    max_importance_per_cluster_label = all_importances_df.groupby('Cluster Label')[
         'Importance (Mean Drop in Score)'].max()
-    top_n_feature_names = max_importance_per_feature.sort_values(ascending=False).head(
+    top_n_cluster_labels = max_importance_per_cluster_label.sort_values(ascending=False).head(
         N_TOP_CLUSTERS_TO_PLOT).index.tolist()
 
-    top_n_importances_df = all_importances_df[
-        all_importances_df['Feature (Cluster Representative)'].isin(top_n_feature_names)]
+    top_n_importances_df = all_importances_df[all_importances_df['Cluster Label'].isin(top_n_cluster_labels)]
 
-    top_n_importances_df['Feature (Cluster Representative)'] = pd.Categorical(
-        top_n_importances_df['Feature (Cluster Representative)'],
-        categories=top_n_feature_names,
+    # Ensure consistent ordering for plotting based on the descriptive labels
+    top_n_importances_df['Cluster Label'] = pd.Categorical(
+        top_n_importances_df['Cluster Label'],
+        categories=top_n_cluster_labels,
         ordered=True
     )
-    top_n_importances_df = top_n_importances_df.sort_values('Feature (Cluster Representative)')
+    top_n_importances_df = top_n_importances_df.sort_values('Cluster Label')
 
     print("\n--- Top Clustered Feature Importances (Across All Models) ---")
 
     importance_csv_path = os.path.join(results_subdir,
                                        f"multi_model_cluster_importances_thresh_{current_clustering_threshold}.csv")
     all_importances_df.to_csv(importance_csv_path, index=False)
-    print(f"\nFull multi-model feature importances saved to: {importance_csv_path}")
+    print(f"\nFull multi-model cluster importances saved to: {importance_csv_path}")
 
-    # --- 5. Plotting ---
+    # --- Plotting with Matplotlib for Grouped Bars with Error Bars ---
     plot_df = top_n_importances_df.pivot(
-        index='Feature (Cluster Representative)',
+        index='Cluster Label',  # Use descriptive label for index
         columns='Model',
         values='Importance (Mean Drop in Score)'
     )
     plot_df_std = top_n_importances_df.pivot(
-        index='Feature (Cluster Representative)',
+        index='Cluster Label',  # Use descriptive label for index
         columns='Model',
         values='Importance (Std Dev)'
     )
 
-    plot_df = plot_df.reindex(top_n_feature_names)  # Ensure correct order
-    plot_df_std = plot_df_std.reindex(top_n_feature_names)  # Ensure correct order
+    # Reindex to ensure the order of features in plot_df matches top_n_cluster_labels
+    plot_df = plot_df.reindex(top_n_cluster_labels)
+    plot_df_std = plot_df_std.reindex(top_n_cluster_labels)
 
     n_models = len(plot_df.columns)
-    n_features_to_plot = len(plot_df.index)
+    n_features_to_plot = len(plot_df.index)  # Now based on cluster labels
 
     bar_height = 0.8 / n_models
     index = np.arange(n_features_to_plot)
 
-    fig, ax = plt.subplots(figsize=(14, max(8, n_features_to_plot * 0.7 * n_models * 0.3)))
+    fig, ax = plt.subplots(
+        figsize=(15, max(8, n_features_to_plot * 0.7 * n_models * 0.3)))  # Adjusted width for potentially longer labels
 
     colors = sns.color_palette('viridis', n_colors=n_models)
 
-    for i, model_name_plot in enumerate(plot_df.columns):  # Use a different variable name
+    for i, model_name_plot in enumerate(plot_df.columns):
         means = plot_df[model_name_plot].values
         stds = plot_df_std[model_name_plot].values
 
@@ -420,25 +459,25 @@ def main():
     ax.set_xlabel(
         f"Mean Drop in Test {SCORING_METRIC_FOR_IMPORTANCE.replace('_', ' ').title()} (Permutation Importance)",
         fontsize=12)
-    ax.set_ylabel("Cluster Representative Feature", fontsize=12)
+    ax.set_ylabel("Descriptive Cluster Label", fontsize=12)  # Updated Y-axis label
     ax.set_title(
         f'Top {min(N_TOP_CLUSTERS_TO_PLOT, n_features_to_plot)} Most Important Clusters (Thresh={current_clustering_threshold})',
         fontsize=14)
     ax.set_yticks(index)
-    ax.set_yticklabels(plot_df.index)
+    ax.set_yticklabels(plot_df.index)  # Use descriptive cluster labels for y-tick labels
     ax.invert_yaxis()
     ax.legend(title='Model', bbox_to_anchor=(1.02, 1), loc='upper left')
     ax.grid(axis='x', linestyle='--', alpha=0.7)
 
-    plt.tight_layout(rect=[0, 0, 0.85, 1])
+    plt.tight_layout(rect=[0, 0, 0.83, 1])  # Adjusted right margin for legend
 
     plot_save_path = os.path.join(results_subdir,
-                                  f"top_multi_model_cluster_importances_thresh_{current_clustering_threshold}.png")
+                                  f"top_multi_model_cluster_importances_desc_labels_thresh_{current_clustering_threshold}.png")
     plt.savefig(plot_save_path)
     print(f"Multi-model importance plot saved to: {plot_save_path}")
     plt.show()
 
-    print("\nMulti-model cluster importance analysis finished.")
+    print("\nMulti-model cluster importance analysis with descriptive labels finished.")
 
 
 if __name__ == '__main__':
