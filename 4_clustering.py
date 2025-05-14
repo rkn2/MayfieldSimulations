@@ -54,7 +54,7 @@ N_SPLITS_CV = 5  # For cross-validation within model tuning
 
 # --- Clustering Configuration ---
 # Thresholds to test for feature clustering. None means use all original features (baseline).
-CLUSTERING_THRESHOLDS_TO_TEST = [None, 0.4, 0.5, 0.6, 0.7, 0.8]  # User requested 0.4, 0.6, 0.8
+CLUSTERING_THRESHOLDS_TO_TEST = [None, 0.7]  # User requested 0.4, 0.6, 0.8
 CLUSTERING_LINKAGE_METHOD = 'average'
 
 # --- Model Benchmarking Configuration (Consistent with ordinal_classification_script_v3) ---

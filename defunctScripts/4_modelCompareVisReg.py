@@ -6,12 +6,12 @@ import os
 import warnings
 
 # --- Configuration ---
-RESULTS_DIR = 'processed_ml_data' # Directory where results CSV is saved
+RESULTS_DIR = '../processed_ml_data'  # Directory where results CSV is saved
 RESULTS_FILENAME = 'model_tuned_cv_benchmarking_results.csv'
 FULL_RESULTS_CSV_PATH = os.path.join(RESULTS_DIR, RESULTS_FILENAME)
 
 # Directory to save the combined plot
-PLOTS_OUTPUT_DIR = 'benchmarking_plots'
+PLOTS_OUTPUT_DIR = '../benchmarking_plots'
 COMBINED_PLOT_FILENAME = 'combined_model_performance_comparison.png'
 FULL_PLOT_SAVE_PATH = os.path.join(PLOTS_OUTPUT_DIR, COMBINED_PLOT_FILENAME)
 SAVE_PLOT = True # Set to False to only display plot

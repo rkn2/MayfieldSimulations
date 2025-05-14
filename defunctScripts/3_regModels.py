@@ -28,7 +28,7 @@ except ImportError:
 
 
 # --- Configuration ---
-DATA_DIR = 'processed_ml_data'
+DATA_DIR = '../processed_ml_data'
 RESULTS_FILENAME = 'model_tuned_cv_benchmarking_results.csv' # Updated filename
 
 # Construct the full paths

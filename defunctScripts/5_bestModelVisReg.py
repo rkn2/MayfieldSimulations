@@ -10,7 +10,7 @@ from sklearn.inspection import permutation_importance
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, mean_absolute_error, mean_squared_error, r2_score, f1_score
 
 # --- Configuration ---
-DATA_DIR = 'processed_ml_data'
+DATA_DIR = '../processed_ml_data'
 RESULTS_FILENAME = 'model_tuned_cv_benchmarking_results.csv'
 
 # Paths to load necessary files
@@ -21,7 +21,7 @@ PREPROCESSOR_PATH = os.path.join(DATA_DIR, 'preprocessor.pkl')
 FULL_RESULTS_CSV_PATH = os.path.join(DATA_DIR, RESULTS_FILENAME)
 
 # Output directory for plots
-PLOTS_OUTPUT_DIR = 'best_model_plots'
+PLOTS_OUTPUT_DIR = '../best_model_plots'
 SAVE_PLOTS = True
 
 # Plotting Style & Feature Importance
