@@ -1,0 +1,1 @@
+this was made by throwing the txt file into gemini 2.5 pro and having it make the names and table
