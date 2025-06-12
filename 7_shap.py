@@ -99,12 +99,17 @@ def main():
             explainer = shap.TreeExplainer(model, background_data)
             # Use the modern explainer call which returns a single Explanation object
             shap_explanation_object = explainer(X_test_sample)
-            # For multi-class, the .values attribute has shape (n_samples, n_features, n_classes)
-            shap_values_all_classes = shap_explanation_object.values
         else:
             print("Non-tree model detected. Using shap.KernelExplainer. This might take some time...")
             explainer = shap.KernelExplainer(model.predict_proba, background_data)
-            shap_values_all_classes = explainer.shap_values(X_test_sample)
+            shap_values_raw = explainer.shap_values(X_test_sample)
+            # Manually create the explanation object for KernelExplainer
+            shap_explanation_object = shap.Explanation(
+                values=shap_values_raw,
+                base_values=[explainer.expected_value[i] for i in range(len(shap_values_raw))],
+                data=X_test_sample.values,
+                feature_names=X_test_sample.columns.tolist()
+            )
 
         print("SHAP values calculated successfully.")
 
@@ -122,32 +127,21 @@ def main():
     # 4. Create and Save Composite Bar Chart
     print("\n--- Generating Composite SHAP Bar Plot for All Classes ---")
 
-    # Calculate mean absolute SHAP values for each class
-    # The shape of shap_values_all_classes should be (n_samples, n_features, n_classes) for tree models
-    # or a list of arrays for kernel models. We handle both cases.
-    if isinstance(shap_values_all_classes, list):  # From KernelExplainer
-        mean_abs_shap_per_class = [np.abs(vals).mean(0) for vals in shap_values_all_classes]
-    else:  # From TreeExplainer
-        mean_abs_shap_per_class = [np.abs(shap_values_all_classes[:, :, i]).mean(0) for i in range(len(unique_classes))]
+    # Calculate mean absolute SHAP values for each class directly from the explanation object
+    mean_abs_shap_per_class = [np.abs(shap_explanation_object.values[:, :, i]).mean(0) for i in
+                               range(len(unique_classes))]
 
-    # Create a DataFrame with importance values for all classes
     feature_importance_df = pd.DataFrame(
         data=np.array(mean_abs_shap_per_class).T,
         index=X_test_sample.columns,
         columns=class_names
     )
 
-    # Find top features based on the sum of their importance across all classes
     feature_importance_df['Total Importance'] = feature_importance_df.sum(axis=1)
     top_features = feature_importance_df.nlargest(N_TOP_FEATURES_TO_PLOT, 'Total Importance')
 
-    # Plot the composite bar chart
     top_features.drop(columns=['Total Importance']).plot(
-        kind='bar',
-        figsize=(16, 9),
-        width=0.8,
-        stacked=False,
-        colormap='viridis'
+        kind='bar', figsize=(16, 9), width=0.8, stacked=False, colormap='viridis'
     )
 
     plt.title(f'Top {N_TOP_FEATURES_TO_PLOT} Feature Importances by Class', fontsize=16)
@@ -166,11 +160,6 @@ def main():
         print(f"  ANALYZING SHAP VALUES FOR CLASS: {target_class_to_explain}")
         print(f"============================================================")
 
-        if isinstance(shap_values_all_classes, list):
-            shap_values_for_class = shap_values_all_classes[i]
-        else:
-            shap_values_for_class = shap_values_all_classes[:, :, i]
-
         # Print console output
         class_importance_df = pd.DataFrame({
             'Feature': X_test_sample.columns,
@@ -183,8 +172,8 @@ def main():
         # Generate and Save Beeswarm plot
         print(f"\n  Generating SHAP Beeswarm Summary Plot for Class {target_class_to_explain}...")
         plt.figure()
-        shap.summary_plot(shap_values_for_class, X_test_sample, plot_type="beeswarm",
-                          feature_names=X_test_sample.columns.tolist(), max_display=N_TOP_FEATURES_TO_PLOT, show=False)
+        # *** FIX: Use the more robust shap.plots.beeswarm directly with the sliced Explanation object ***
+        shap.plots.beeswarm(shap_explanation_object[:, :, i], max_display=N_TOP_FEATURES_TO_PLOT, show=False)
         plt.title(f'SHAP Summary Plot (for class {target_class_to_explain})', fontsize=14)
         plt.tight_layout()
         plt.savefig(os.path.join(RESULTS_DIR, f'shap_summary_beeswarm_class_{target_class_to_explain}.png'))
@@ -196,3 +185,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
