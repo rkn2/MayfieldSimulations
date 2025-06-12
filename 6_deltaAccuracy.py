@@ -18,6 +18,8 @@ from dython.nominal import associations
 from scipy.cluster import hierarchy
 from scipy.spatial.distance import squareform
 from sklearn.linear_model import LogisticRegression
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier
 
 try:
     import xgboost as xgb
@@ -51,6 +53,7 @@ setup_logging()
 DATA_DIR = 'processed_ml_data'
 BASE_RESULTS_DIR = 'cluster_importance_results_final'
 BEST_THRESHOLD_FILE = os.path.join('clustering_performance_results', 'best_threshold.json')
+TOP_MODELS_FILE = os.path.join('clustering_performance_results', 'top_models.json')
 
 
 CLUSTERING_LINKAGE_METHOD = 'average'
@@ -65,13 +68,6 @@ TRAIN_Y_PATH = os.path.join(DATA_DIR, 'y_train.pkl')
 TEST_X_PATH = os.path.join(DATA_DIR, 'X_test_processed.pkl')
 TEST_Y_PATH = os.path.join(DATA_DIR, 'y_test.pkl')
 CV_RESULTS_CSV_PATH = os.path.join(DATA_DIR, 'model_tuned_cv_results.csv')
-
-TOP_MODELS_TO_TEST = {
-    "LightGBM": lgb.LGBMClassifier(random_state=RANDOM_STATE, verbosity=-1) if LGBM_AVAILABLE else None,
-    "Logistic Regression": LogisticRegression(random_state=RANDOM_STATE, max_iter=2000),
-    "XGBoost": xgb.XGBClassifier(random_state=RANDOM_STATE, eval_metric='mlogloss') if XGB_AVAILABLE else None,
-}
-TOP_MODELS_TO_TEST = {k: v for k, v in TOP_MODELS_TO_TEST.items() if v is not None}
 
 # --- Helper Functions ---
 def load_data(file_path, description="data"):
@@ -151,6 +147,21 @@ def main():
 
     with open(BEST_THRESHOLD_FILE, 'r') as f:
         USER_DEFINED_CLUSTERING_THRESHOLD = json.load(f)['best_threshold']
+
+    with open(TOP_MODELS_FILE, 'r') as f:
+        top_models_names = json.load(f)['top_models']
+
+    all_models = {
+        "LightGBM": lgb.LGBMClassifier(random_state=RANDOM_STATE, verbosity=-1) if LGBM_AVAILABLE else None,
+        "Logistic Regression": LogisticRegression(random_state=RANDOM_STATE, max_iter=2000),
+        "XGBoost": xgb.XGBClassifier(random_state=RANDOM_STATE, eval_metric='mlogloss') if XGB_AVAILABLE else None,
+        "Random Forest": RandomForestClassifier(random_state=RANDOM_STATE),
+        "Decision Tree": DecisionTreeClassifier(random_state=RANDOM_STATE)
+    }
+
+    TOP_MODELS_TO_TEST = {name: model for name, model in all_models.items() if name in top_models_names and model is not None}
+    logging.info(f"Dynamically selected models for testing: {list(TOP_MODELS_TO_TEST.keys())}")
+
 
     results_subdir = os.path.join(BASE_RESULTS_DIR, f"thresh_{USER_DEFINED_CLUSTERING_THRESHOLD}")
     os.makedirs(results_subdir, exist_ok=True)

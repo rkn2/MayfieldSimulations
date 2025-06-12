@@ -63,6 +63,7 @@ setup_logging()
 DATA_DIR = 'processed_ml_data'
 BASE_RESULTS_DIR = 'clustering_performance_results'
 BEST_THRESHOLD_FILE = os.path.join(BASE_RESULTS_DIR, 'best_threshold.json')
+TOP_MODELS_FILE = os.path.join(BASE_RESULTS_DIR, 'top_models.json')
 TRAIN_X_PATH = os.path.join(DATA_DIR, 'X_train_processed.pkl')
 TRAIN_Y_PATH = os.path.join(DATA_DIR, 'y_train.pkl')
 TEST_X_PATH = os.path.join(DATA_DIR, 'X_test_processed.pkl')
@@ -74,6 +75,7 @@ CLUSTERING_LINKAGE_METHOD = 'average'
 GRIDSEARCH_SCORING_METRIC = 'f1_weighted'
 PRIMARY_CV_METRIC_NAME_FOR_BEST_MODEL = f"Mean CV {GRIDSEARCH_SCORING_METRIC.replace('_', ' ').title()}"
 METRIC_FOR_FINAL_COMPARISON_PLOT = 'Test F1 Weighted'
+N_TOP_MODELS_TO_SAVE = 3 # Number of top models to pass to the next script
 
 CV_SCORING_REPORT_DICT = {
     'accuracy': 'accuracy',
@@ -313,6 +315,13 @@ def main():
     with open(BEST_THRESHOLD_FILE, 'w') as f:
         json.dump({'best_threshold': best_threshold}, f)
     logging.info(f"Best threshold saved to: {BEST_THRESHOLD_FILE}")
+
+    # Identify and save the top N models
+    top_models = performance_df.sort_values(by=METRIC_FOR_FINAL_COMPARISON_PLOT, ascending=False)['Best CV Model'].unique()[:N_TOP_MODELS_TO_SAVE]
+    logging.info(f"Top {N_TOP_MODELS_TO_SAVE} models to be passed to next script: {top_models}")
+    with open(TOP_MODELS_FILE, 'w') as f:
+        json.dump({'top_models': list(top_models)}, f)
+    logging.info(f"Top models saved to: {TOP_MODELS_FILE}")
 
 
     plt.figure(figsize=(14, 8))
