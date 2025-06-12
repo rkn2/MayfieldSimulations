@@ -90,18 +90,21 @@ def main():
         exit()
     background_data = X_train.sample(n_background, random_state=42)
 
-    # 3. Initialize SHAP Explainer and Calculate SHAP values
+    # 3. Initialize SHAP Explainer and Calculate SHAP values for ALL classes
     print("\n--- Calculating SHAP Values ---")
     try:
         if "XGBoost" in str(type(model)) or "LGBM" in str(type(model)) or "RandomForest" in str(
                 type(model)) or "DecisionTree" in str(type(model)):
             print("Tree-based model detected. Using shap.TreeExplainer for efficiency.")
             explainer = shap.TreeExplainer(model, background_data)
-            shap_values_raw = explainer.shap_values(X_test_sample)
+            # Use the modern explainer call which returns a single Explanation object
+            shap_explanation_object = explainer(X_test_sample)
+            # For multi-class, the .values attribute has shape (n_samples, n_features, n_classes)
+            shap_values_all_classes = shap_explanation_object.values
         else:
             print("Non-tree model detected. Using shap.KernelExplainer. This might take some time...")
             explainer = shap.KernelExplainer(model.predict_proba, background_data)
-            shap_values_raw = explainer.shap_values(X_test_sample)
+            shap_values_all_classes = explainer.shap_values(X_test_sample)
 
         print("SHAP values calculated successfully.")
 
@@ -112,62 +115,83 @@ def main():
         print("Please ensure the 'shap' library is installed (`pip install shap`).")
         exit()
 
-    target_class_to_explain = pd.Series(y_test).mode()[0]
-    print(f"\nAnalyzing SHAP values for the most common target class: {target_class_to_explain}")
+    unique_classes = sorted(np.unique(y_test))
+    class_names = [f"Class {c}" for c in unique_classes]
+    print(f"\nFound unique classes in test set: {unique_classes}. Analyzing all classes.")
 
-    if isinstance(shap_values_raw, list):
-        shap_values_for_class = shap_values_raw[target_class_to_explain]
-    else:
-        shap_values_for_class = shap_values_raw
+    # 4. Create and Save Composite Bar Chart
+    print("\n--- Generating Composite SHAP Bar Plot for All Classes ---")
 
-    # 4. Calculate and Print SHAP Feature Importance Results
-    print("\n--- SHAP Feature Importance Results (Console Output) ---")
+    # Calculate mean absolute SHAP values for each class
+    # The shape of shap_values_all_classes should be (n_samples, n_features, n_classes) for tree models
+    # or a list of arrays for kernel models. We handle both cases.
+    if isinstance(shap_values_all_classes, list):  # From KernelExplainer
+        mean_abs_shap_per_class = [np.abs(vals).mean(0) for vals in shap_values_all_classes]
+    else:  # From TreeExplainer
+        mean_abs_shap_per_class = [np.abs(shap_values_all_classes[:, :, i]).mean(0) for i in range(len(unique_classes))]
 
-    mean_abs_shap = np.abs(shap_values_for_class).mean(0)
+    # Create a DataFrame with importance values for all classes
+    feature_importance_df = pd.DataFrame(
+        data=np.array(mean_abs_shap_per_class).T,
+        index=X_test_sample.columns,
+        columns=class_names
+    )
 
-    # *** FIX: Explicitly convert data to simple lists before creating the DataFrame ***
-    feature_names_list = X_test_sample.columns.tolist()
-    shap_values_list = mean_abs_shap.tolist()
+    # Find top features based on the sum of their importance across all classes
+    feature_importance_df['Total Importance'] = feature_importance_df.sum(axis=1)
+    top_features = feature_importance_df.nlargest(N_TOP_FEATURES_TO_PLOT, 'Total Importance')
 
-    if len(feature_names_list) != len(shap_values_list):
-        print("Error: Mismatch between number of features and number of SHAP values. Cannot create results table.")
-    else:
-        feature_importance_df = pd.DataFrame({
-            'Feature': feature_names_list,
-            'Mean Absolute SHAP Value': shap_values_list
-        })
+    # Plot the composite bar chart
+    top_features.drop(columns=['Total Importance']).plot(
+        kind='bar',
+        figsize=(16, 9),
+        width=0.8,
+        stacked=False,
+        colormap='viridis'
+    )
 
-        feature_importance_df.sort_values(by='Mean Absolute SHAP Value', ascending=False, inplace=True)
+    plt.title(f'Top {N_TOP_FEATURES_TO_PLOT} Feature Importances by Class', fontsize=16)
+    plt.ylabel('Mean Absolute SHAP Value (Impact on prediction)', fontsize=12)
+    plt.xlabel('Feature', fontsize=12)
+    plt.xticks(rotation=45, ha='right')
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.tight_layout()
+    plt.savefig(os.path.join(RESULTS_DIR, 'shap_summary_bar_composite.png'))
+    plt.close()
+    print("    Saved composite bar chart to shap_summary_bar_composite.png")
+
+    # 5. Loop to generate individual Beeswarm plots and console output
+    for i, target_class_to_explain in enumerate(unique_classes):
+        print(f"\n============================================================")
+        print(f"  ANALYZING SHAP VALUES FOR CLASS: {target_class_to_explain}")
+        print(f"============================================================")
+
+        if isinstance(shap_values_all_classes, list):
+            shap_values_for_class = shap_values_all_classes[i]
+        else:
+            shap_values_for_class = shap_values_all_classes[:, :, i]
+
+        # Print console output
+        class_importance_df = pd.DataFrame({
+            'Feature': X_test_sample.columns,
+            'Mean Absolute SHAP Value': feature_importance_df[f'Class {target_class_to_explain}']
+        }).sort_values(by='Mean Absolute SHAP Value', ascending=False)
 
         print(f"Top {N_TOP_FEATURES_TO_PLOT} features influencing predictions for class {target_class_to_explain}:")
-        print(feature_importance_df.head(N_TOP_FEATURES_TO_PLOT).to_string(index=False))
+        print(class_importance_df.head(N_TOP_FEATURES_TO_PLOT).to_string(index=False))
 
-    # 5. Generate and Save SHAP Plots
-    print("\n--- Generating SHAP Plots ---")
+        # Generate and Save Beeswarm plot
+        print(f"\n  Generating SHAP Beeswarm Summary Plot for Class {target_class_to_explain}...")
+        plt.figure()
+        shap.summary_plot(shap_values_for_class, X_test_sample, plot_type="beeswarm",
+                          feature_names=X_test_sample.columns.tolist(), max_display=N_TOP_FEATURES_TO_PLOT, show=False)
+        plt.title(f'SHAP Summary Plot (for class {target_class_to_explain})', fontsize=14)
+        plt.tight_layout()
+        plt.savefig(os.path.join(RESULTS_DIR, f'shap_summary_beeswarm_class_{target_class_to_explain}.png'))
+        plt.close()
+        print(f"    Saved shap_summary_beeswarm_class_{target_class_to_explain}.png")
 
-    # Beeswarm plot (Global Feature Importance)
-    print("  Generating SHAP Beeswarm Summary Plot...")
-    plt.figure()
-    shap.summary_plot(shap_values_for_class, X_test_sample, plot_type="beeswarm", max_display=N_TOP_FEATURES_TO_PLOT,
-                      show=False)
-    plt.title(f'SHAP Summary Plot (for class {target_class_to_explain})', fontsize=14)
-    plt.tight_layout()
-    plt.savefig(os.path.join(RESULTS_DIR, 'shap_summary_beeswarm.png'))
-    plt.close()
-    print("    Saved shap_summary_beeswarm.png")
-
-    # Bar plot (Global Feature Importance)
-    print("  Generating SHAP Bar Plot...")
-    plt.figure()
-    shap.summary_plot(shap_values_for_class, X_test_sample, plot_type="bar", max_display=N_TOP_FEATURES_TO_PLOT,
-                      show=False)
-    plt.title(f'SHAP Mean Absolute Feature Importance (for class {target_class_to_explain})', fontsize=14)
-    plt.tight_layout()
-    plt.savefig(os.path.join(RESULTS_DIR, 'shap_summary_bar.png'))
-    plt.close()
-    print("    Saved shap_summary_bar.png")
-
-    print("\nSHAP analysis complete. Summary plots are saved in the 'shap_plots' directory.")
+    print("\nSHAP analysis complete. All plots saved in the 'shap_plots' directory.")
 
 
 if __name__ == "__main__":
