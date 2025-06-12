@@ -20,7 +20,7 @@ TRAIN_X_PATH = os.path.join(DATA_DIR, 'X_train_processed.pkl')
 # --- USER-DEFINED CLUSTERING THRESHOLD ---
 # Set the same threshold you used for the importance analysis,
 # or any other threshold you want to explore.
-USER_DEFINED_CLUSTERING_THRESHOLD = 0.7  # <--- CHANGE THIS VALUE AS NEEDED
+USER_DEFINED_CLUSTERING_THRESHOLD = 0.5  # <--- CHANGE THIS VALUE AS NEEDED
 
 # --- USER-DEFINED RANDOM FEATURE ---
 # Specify the exact name of the feature you consider "random".

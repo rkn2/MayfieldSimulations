@@ -17,7 +17,7 @@ INPUT_CSV_PATH = 'cleaned_data_latlong.csv'  # Output from the previous cleaning
 TARGET_COLUMN = 'degree_of_damage_u'
 
 # --- Class Reduction Configuration ---
-REDUCE_CLASSES_STRATEGY = 'A'  # Options: 'A', 'B', None, etc.
+REDUCE_CLASSES_STRATEGY = 'B'  # Options: 'A', 'B', None, etc.
 # Define mappings for different strategies
 CLASS_MAPPINGS = {
     'A': {  # Strategy A: Undamaged, Low-to-Moderate, Significant, Demolished

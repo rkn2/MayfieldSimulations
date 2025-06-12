@@ -75,8 +75,7 @@ MODELS_TO_BENCHMARK = {
     "KNN": KNeighborsClassifier()
 }
 if XGB_AVAILABLE:
-    MODELS_TO_BENCHMARK["XGBoost"] = xgb.XGBClassifier(random_state=RANDOM_STATE, use_label_encoder=False,
-                                                       eval_metric='mlogloss')
+    MODELS_TO_BENCHMARK["XGBoost"] = xgb.XGBClassifier(random_state=RANDOM_STATE, eval_metric='mlogloss')
 if LGBM_AVAILABLE:
     MODELS_TO_BENCHMARK["LightGBM"] = lgb.LGBMClassifier(random_state=RANDOM_STATE, verbosity=-1)
 
