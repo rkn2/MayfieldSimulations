@@ -32,7 +32,6 @@ except ImportError:
 # --- Logging Configuration Setup ---
 def setup_logging(log_file='pipeline.log'):
     """Sets up logging to both a file and the console."""
-    # Append to the file created by previous scripts
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -40,10 +39,9 @@ def setup_logging(log_file='pipeline.log'):
             logging.FileHandler(log_file, mode='a'),
             logging.StreamHandler(sys.stdout)
         ],
-        force=True # Ensures the handler is added even if logging was configured before
+        force=True
     )
 
-# Call the setup function
 setup_logging()
 
 # --- Configuration ---
@@ -64,9 +62,8 @@ TRAIN_Y_PATH = os.path.join(DATA_DIR, 'y_train.pkl')
 TEST_X_PATH = os.path.join(DATA_DIR, 'X_test_processed.pkl')
 TEST_Y_PATH = os.path.join(DATA_DIR, 'y_test.pkl')
 CV_RESULTS_CSV_PATH = os.path.join(DATA_DIR, 'model_tuned_cv_results.csv')
-CLUSTER_LABELS_CSV_PATH = os.path.join(CLUSTER_LABELS_DIR, f"threshold_{USER_DEFINED_CLUSTERING_THRESHOLD}",
-                                       "cluster_labels_and_contributing_features_thresh0.5.csv")
 
+# --- Model Configuration ---
 TOP_MODELS_TO_TEST = {
     "LightGBM": lgb.LGBMClassifier(random_state=RANDOM_STATE, verbosity=-1) if LGBM_AVAILABLE else None,
     "Logistic Regression": LogisticRegression(random_state=RANDOM_STATE, max_iter=2000),
@@ -83,10 +80,10 @@ def load_data(file_path, description="data"):
         return data
     except FileNotFoundError:
         logging.error(f"Error: {description} file not found at {file_path}. Exiting.")
-        exit()
+        sys.exit(1)
     except Exception as e:
         logging.error(f"Error loading {description} from {file_path}: {e}", exc_info=True)
-        exit()
+        sys.exit(1)
 
 def sanitize_feature_names_df(df):
     if not isinstance(df, pd.DataFrame): return df
@@ -163,7 +160,7 @@ def main():
     all_best_params = load_best_parameters(CV_RESULTS_CSV_PATH)
     if all_best_params is None:
         logging.critical("Exiting due to failure in loading model parameters.")
-        exit()
+        sys.exit(1)
 
     X_train_sanitized = sanitize_feature_names_df(pd.DataFrame(X_train_orig))
     X_test_sanitized = sanitize_feature_names_df(pd.DataFrame(X_test_orig)).reindex(columns=X_train_sanitized.columns, fill_value=0)
@@ -181,16 +178,6 @@ def main():
 
     X_train_selected = X_train_sanitized[selected_features]
     X_test_selected = X_test_sanitized[selected_features]
-
-    logging.info(f"Loading cluster labels from {CLUSTER_LABELS_CSV_PATH}...")
-    try:
-        labels_df = pd.read_csv(CLUSTER_LABELS_CSV_PATH)
-        cluster_label_map = pd.Series(labels_df['Cluster Label'].values,
-                                      index=labels_df['Representative Feature']).to_dict()
-        logging.info("  Successfully created cluster label map.")
-    except Exception as e:
-        logging.error(f"Could not load or process cluster labels CSV: {e}. Raw feature names will be used.", exc_info=True)
-        cluster_label_map = {}
 
     all_model_importances = []
 
@@ -211,12 +198,11 @@ def main():
         )
 
         for i, rep_feature_name in enumerate(selected_features):
-            descriptive_label = cluster_label_map.get(rep_feature_name, rep_feature_name)
             count_le_zero = np.sum(perm_importance_result.importances[i] <= 0)
             p_value = (count_le_zero + 1) / (N_PERMUTATION_REPEATS + 1)
 
             all_model_importances.append({
-                'Cluster Label': descriptive_label,
+                'Cluster Label': rep_feature_name,  # Use the representative feature name as the label
                 'Model': model_name,
                 'Importance (Mean Drop)': perm_importance_result.importances_mean[i],
                 'Importance (Std Dev)': perm_importance_result.importances_std[i],
@@ -231,7 +217,6 @@ def main():
 
     top_n_df = importances_df[importances_df['Cluster Label'].isin(top_n_labels)]
 
-    # Log data for the plot
     logging.info(f"\n--- Data for Top {N_TOP_CLUSTERS_TO_PLOT} Cluster Importances Plot ---")
     logging.info(f"\n{top_n_df.to_string()}")
 
@@ -242,7 +227,7 @@ def main():
         f'Top {N_TOP_CLUSTERS_TO_PLOT} Most Important Feature Clusters (Threshold={USER_DEFINED_CLUSTERING_THRESHOLD})',
         fontsize=16, pad=20)
     plt.xlabel(f"Mean Drop in Test {SCORING_METRIC_FOR_IMPORTANCE.replace('_', ' ').title()}", fontsize=12)
-    plt.ylabel("Feature Cluster", fontsize=12)
+    plt.ylabel("Feature Cluster (Representative Feature)", fontsize=12)
     plt.legend(title='Model')
     plt.tight_layout()
 
@@ -256,7 +241,6 @@ def main():
         logging.info(f"\n{importances_df.sort_values(by=['Model', 'Importance (Mean Drop)'], ascending=[True, False]).to_string()}")
 
     logging.info(f"--- Finished Script: 6_deltaAccuracy.py ---")
-
 
 if __name__ == '__main__':
     main()
