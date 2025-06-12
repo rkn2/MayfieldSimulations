@@ -60,6 +60,17 @@ def main():
 
     logging.info("--- Data Analysis Pipeline Finished Successfully ---")
 
+    # --- Convert .log file to .txt ---
+    output_log_file_txt = LOG_FILE.replace('.log', '.txt')
+    try:
+        if os.path.exists(LOG_FILE):
+            os.rename(LOG_FILE, output_log_file_txt)
+            print(f"Log file successfully converted to: {output_log_file_txt}")
+        else:
+            print(f"Log file '{LOG_FILE}' not found to convert.")
+    except Exception as e:
+        print(f"Error converting log file: {e}")
+
 
 if __name__ == '__main__':
     main()
