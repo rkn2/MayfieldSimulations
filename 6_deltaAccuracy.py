@@ -15,7 +15,6 @@ from dython.nominal import associations
 from scipy.cluster import hierarchy
 from scipy.spatial.distance import squareform
 
-# ### MODIFIED: Import the models to be tested ###
 from sklearn.linear_model import LogisticRegression
 
 try:
@@ -39,22 +38,20 @@ CLUSTER_LABELS_DIR = 'cluster_exploration_results'
 USER_DEFINED_CLUSTERING_THRESHOLD = 0.5
 CLUSTERING_LINKAGE_METHOD = 'average'
 SCORING_METRIC_FOR_IMPORTANCE = 'f1_weighted'
-N_TOP_CLUSTERS_TO_PLOT = 25
+N_TOP_CLUSTERS_TO_PLOT = 20
 RANDOM_STATE = 42
+N_PERMUTATION_REPEATS = 10  # Number of repeats for permutation importance
 
 # --- Paths ---
 TRAIN_X_PATH = os.path.join(DATA_DIR, 'X_train_processed.pkl')
-### FIXED: Added the missing TRAIN_Y_PATH variable ###
 TRAIN_Y_PATH = os.path.join(DATA_DIR, 'y_train.pkl')
 TEST_X_PATH = os.path.join(DATA_DIR, 'X_test_processed.pkl')
 TEST_Y_PATH = os.path.join(DATA_DIR, 'y_test.pkl')
-
-### MODIFIED: Path to load the results from the model tuning script ###
 CV_RESULTS_CSV_PATH = os.path.join(DATA_DIR, 'model_tuned_cv_results.csv')
 CLUSTER_LABELS_CSV_PATH = os.path.join(CLUSTER_LABELS_DIR, f"threshold_{USER_DEFINED_CLUSTERING_THRESHOLD}",
                                        "cluster_labels_and_contributing_features_thresh0.5.csv")
 
-### NEW: Define the top models to evaluate based on the output of 3_classModel.py ###
+# Define the top models to evaluate
 TOP_MODELS_TO_TEST = {
     "LightGBM": lgb.LGBMClassifier(random_state=RANDOM_STATE, verbosity=-1) if LGBM_AVAILABLE else None,
     "Logistic Regression": LogisticRegression(random_state=RANDOM_STATE, max_iter=2000),
@@ -159,7 +156,6 @@ def main():
 
     print(f"Starting Final Cluster Importance Analysis for THRESHOLD = {USER_DEFINED_CLUSTERING_THRESHOLD}")
 
-    # Load data
     X_train_orig = load_data(TRAIN_X_PATH, "original X_train")
     y_train = load_data(TRAIN_Y_PATH, "original y_train")
     X_test_orig = load_data(TEST_X_PATH, "original X_test")
@@ -170,7 +166,6 @@ def main():
         print("Exiting due to failure in loading model parameters.")
         exit()
 
-    # Sanitize and prepare data
     X_train_sanitized = sanitize_feature_names_df(
         X_train_orig.copy() if isinstance(X_train_orig, pd.DataFrame) else pd.DataFrame(X_train_orig))
     X_test_sanitized = sanitize_feature_names_df(
@@ -180,7 +175,6 @@ def main():
     y_train_ravel = y_train.values.ravel() if isinstance(y_train, (pd.Series, pd.DataFrame)) else y_train.ravel()
     y_test_ravel = y_test.values.ravel() if isinstance(y_test, (pd.Series, pd.DataFrame)) else y_test.ravel()
 
-    # Get clustered features
     print(f"\nPerforming feature selection with optimal clustering threshold: {USER_DEFINED_CLUSTERING_THRESHOLD}...")
     selected_features = get_selected_features_by_clustering(X_train_sanitized, USER_DEFINED_CLUSTERING_THRESHOLD,
                                                             CLUSTERING_LINKAGE_METHOD)
@@ -192,7 +186,6 @@ def main():
     X_train_selected = X_train_sanitized[selected_features]
     X_test_selected = X_test_sanitized[selected_features]
 
-    # Load descriptive labels
     print(f"Loading cluster labels from {CLUSTER_LABELS_CSV_PATH}...")
     try:
         labels_df = pd.read_csv(CLUSTER_LABELS_CSV_PATH)
@@ -205,45 +198,49 @@ def main():
 
     all_model_importances = []
 
-    # Loop through the top models
     for model_name, model_template in TOP_MODELS_TO_TEST.items():
         print(f"\n--- Analyzing Importance for Model: {model_name} ---")
 
-        # Get best params for the current model
         model_params = all_best_params.get(model_name, {})
         model_instance = model_template.set_params(**model_params)
 
-        # Retrain the model on the CLUSTERED training data
         print(f"  Retraining {model_name} on {len(selected_features)} clustered features...")
         model_instance.fit(X_train_selected, y_train_ravel)
 
-        # Calculate permutation importance
         print(f"  Calculating Permutation Importance for {model_name}...")
         scorer = make_scorer(f1_score, average='weighted', zero_division=0)
         perm_importance_result = permutation_importance(
             model_instance, X_test_selected, y_test_ravel, scoring=scorer,
-            n_repeats=10, random_state=RANDOM_STATE, n_jobs=-1
+            n_repeats=N_PERMUTATION_REPEATS, random_state=RANDOM_STATE, n_jobs=-1
         )
 
-        # Store results for this model
         for i, rep_feature_name in enumerate(selected_features):
             descriptive_label = cluster_label_map.get(rep_feature_name, rep_feature_name)
+
+            ### NEW: Calculate p-value ###
+            # Count how many times the permuted score drop was <= 0
+            count_le_zero = np.sum(perm_importance_result.importances[i] <= 0)
+            # Estimate p-value
+            p_value = (count_le_zero + 1) / (N_PERMUTATION_REPEATS + 1)
+
             all_model_importances.append({
                 'Cluster Label': descriptive_label,
                 'Model': model_name,
-                'Importance (Mean Drop)': perm_importance_result.importances_mean[i]
+                'Importance (Mean Drop)': perm_importance_result.importances_mean[i],
+                'Importance (Std Dev)': perm_importance_result.importances_std[i],
+                'p-value': p_value
             })
 
-    # Create and process the final DataFrame
     importances_df = pd.DataFrame(all_model_importances)
 
-    # Find the top N clusters based on the MAX importance across any model
+    ### NEW: Add significance column ###
+    importances_df['Significant (p<0.05)'] = importances_df['p-value'] < 0.05
+
     max_importance_per_cluster = importances_df.groupby('Cluster Label')['Importance (Mean Drop)'].max()
     top_n_labels = max_importance_per_cluster.sort_values(ascending=False).head(N_TOP_CLUSTERS_TO_PLOT).index
 
     top_n_df = importances_df[importances_df['Cluster Label'].isin(top_n_labels)]
 
-    # Plotting
     plt.figure(figsize=(14, 12))
     sns.barplot(x='Importance (Mean Drop)', y='Cluster Label', hue='Model', data=top_n_df, palette='viridis',
                 order=top_n_labels)
@@ -260,10 +257,13 @@ def main():
     print(f"\nFinal multi-model importance plot saved to: {plot_save_path}")
     plt.show()
 
-    ### NEW: Print the full results DataFrame to the console ###
     print("\n--- Full Cluster Importance Results ---")
     # Use to_string() to ensure the full DataFrame is printed without truncation
-    print(importances_df.to_string())
+    # ### MODIFIED: Ensure new columns are included in the printout ###
+    pd.set_option('display.max_columns', None)
+    pd.set_option('display.width', 1000)
+    print(importances_df.sort_values(by=['Model', 'Importance (Mean Drop)'], ascending=[True, False]).to_string())
+
 
 if __name__ == '__main__':
     main()
