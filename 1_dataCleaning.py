@@ -1,5 +1,38 @@
 import pandas as pd
 import numpy as np
+import logging
+import sys
+import os
+
+# --- Logging Configuration Setup ---
+# This can be moved to a separate logging_config.py file if you prefer
+def setup_logging(log_file='pipeline.log'):
+    """Sets up logging to both a file and the console."""
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+
+    # Avoid adding duplicate handlers if this function is called multiple times
+    if logger.hasHandlers():
+        logger.handlers.clear()
+
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+    # File handler
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(formatter)
+
+    # Console handler
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setLevel(logging.INFO)
+    stream_handler.setFormatter(formatter)
+
+    logger.addHandler(file_handler)
+    logger.addHandler(stream_handler)
+
+# Call the setup function to configure logging
+setup_logging()
+
 
 # --- Configuration ---
 INPUT_CSV_PATH = 'QuadState_Tornado_DataInputv2.csv'
@@ -40,11 +73,11 @@ def drop_columns_by_keywords(df, keywords):
         if any(keyword.lower() in col.lower() for keyword in keywords)
     ]
     if cols_to_drop:
-        print(f"Dropping columns based on keywords {keywords}: {cols_to_drop}")
+        logging.info(f"Dropping columns based on keywords {keywords}: {cols_to_drop}")
         df = df.drop(columns=cols_to_drop)
-        print(f"  Dropped {len(cols_to_drop)} columns.")
+        logging.info(f"  Dropped {len(cols_to_drop)} columns.")
     else:
-        print(f"No columns found matching keywords {keywords}.")
+        logging.info(f"No columns found matching keywords {keywords}.")
     return df
 
 def drop_specific_columns(df, columns_list):
@@ -54,13 +87,13 @@ def drop_specific_columns(df, columns_list):
     cols_not_found = [col for col in columns_list if col not in df.columns]
 
     if cols_not_found:
-        print(f"Warning: Specific columns to drop not found: {cols_not_found}")
+        logging.warning(f"Specific columns to drop not found: {cols_not_found}")
     if cols_to_drop:
-        print(f"Dropping specific columns: {cols_to_drop}")
+        logging.info(f"Dropping specific columns: {cols_to_drop}")
         df = df.drop(columns=cols_to_drop)
-        print(f"  Dropped {len(cols_to_drop)} columns.")
+        logging.info(f"  Dropped {len(cols_to_drop)} columns.")
     else:
-        print("No specific columns found to drop from the provided list.")
+        logging.info("No specific columns found to drop from the provided list.")
     return df
 
 def drop_older_version_columns(df):
@@ -75,11 +108,11 @@ def drop_older_version_columns(df):
             cols_to_drop.append(o_col)
 
     if cols_to_drop:
-        print(f"Dropping older version columns ('_o' suffix): {cols_to_drop}")
+        logging.info(f"Dropping older version columns ('_o' suffix): {cols_to_drop}")
         df = df.drop(columns=cols_to_drop)
-        print(f"  Dropped {len(cols_to_drop)} columns.")
+        logging.info(f"  Dropped {len(cols_to_drop)} columns.")
     else:
-        print("No older version ('_o') columns found to drop.")
+        logging.info("No older version ('_o') columns found to drop.")
     return df
 
 def handle_percent_columns(df, action):
@@ -89,15 +122,15 @@ def handle_percent_columns(df, action):
     if action == 'drop':
         cols_to_drop_per = [col for col in df.columns if '_per_' in col]
         if cols_to_drop_per:
-            print(f"Action '{action}': Dropping columns containing '_per_': {cols_to_drop_per}")
+            logging.info(f"Action '{action}': Dropping columns containing '_per_': {cols_to_drop_per}")
             df = df.drop(columns=cols_to_drop_per)
-            print(f"  Dropped {len(cols_to_drop_per)} columns containing '_per_'.")
+            logging.info(f"  Dropped {len(cols_to_drop_per)} columns containing '_per_'.")
         else:
-            print(f"Action '{action}': No columns containing '_per_' found to drop.")
+            logging.info(f"Action '{action}': No columns containing '_per_' found to drop.")
     elif action == 'keep':
-        print(f"Action '{action}': Keeping all columns containing '_per_'.")
+        logging.info(f"Action '{action}': Keeping all columns containing '_per_'.")
     else:
-        print(f"Warning: Invalid PERCENT_COLUMNS_ACTION '{action}'. Defaulting to 'keep'.")
+        logging.warning(f"Invalid PERCENT_COLUMNS_ACTION '{action}'. Defaulting to 'keep'.")
 
     return df
 
@@ -110,85 +143,85 @@ def handle_directional_columns(df, action):
         # Find columns ending with any of the directional suffixes
         cols_to_drop_dir = [col for col in df.columns if col.endswith(directional_suffixes)]
         if cols_to_drop_dir:
-            print(f"Action '{action}': Dropping columns ending in {directional_suffixes}: {cols_to_drop_dir}")
+            logging.info(f"Action '{action}': Dropping columns ending in {directional_suffixes}: {cols_to_drop_dir}")
             df = df.drop(columns=cols_to_drop_dir)
-            print(f"  Dropped {len(cols_to_drop_dir)} directional columns.")
+            logging.info(f"  Dropped {len(cols_to_drop_dir)} directional columns.")
         else:
-            print(f"Action '{action}': No directional columns found to drop.")
+            logging.info(f"Action '{action}': No directional columns found to drop.")
     elif action == 'keep':
-        print(f"Action '{action}': Keeping all directional columns.")
+        logging.info(f"Action '{action}': Keeping all directional columns.")
     else:
-        print(f"Warning: Invalid DIRECTIONAL_COLUMNS_ACTION '{action}'. Defaulting to 'keep'.")
+        logging.warning(f"Invalid DIRECTIONAL_COLUMNS_ACTION '{action}'. Defaulting to 'keep'.")
 
     return df
 
 # --- Main Data Cleaning Script ---
 
-print(f"Starting data cleaning process for {INPUT_CSV_PATH}")
+logging.info(f"Starting data cleaning process for {INPUT_CSV_PATH}")
 
 # 1. Load Data
-print("Step 1: Loading data...")
+logging.info("Step 1: Loading data...")
 try:
     # Specify low_memory=False if you encounter DtypeWarning, often due to mixed types
     df = pd.read_csv(INPUT_CSV_PATH, delimiter=',', encoding='latin-1', low_memory=False)
-    print(f"  Successfully loaded. Initial shape: {df.shape}")
+    logging.info(f"  Successfully loaded. Initial shape: {df.shape}")
 except FileNotFoundError:
-    print(f"Error: Input file not found at {INPUT_CSV_PATH}")
+    logging.error(f"Error: Input file not found at {INPUT_CSV_PATH}")
     exit() # Stop execution if file is missing
 except Exception as e:
-    print(f"Error loading CSV: {e}")
+    logging.error(f"Error loading CSV: {e}")
     exit()
 
 # 2. Initial Row Filtering
-print(f"\nStep 2: Dropping rows where '{TARGET_COLUMN_FOR_NAN_DROP}' is missing...")
+logging.info(f"\nStep 2: Dropping rows where '{TARGET_COLUMN_FOR_NAN_DROP}' is missing...")
 initial_rows = len(df)
 df = df.dropna(subset=[TARGET_COLUMN_FOR_NAN_DROP])
 df = df.reset_index(drop=True)
-print(f"  Dropped {initial_rows - len(df)} rows. Current shape: {df.shape}")
+logging.info(f"  Dropped {initial_rows - len(df)} rows. Current shape: {df.shape}")
 
 # 3. Drop Low Variation Columns
-print("\nStep 3: Removing columns with low variation...")
+logging.info("\nStep 3: Removing columns with low variation...")
 initial_cols = df.shape[1]
 variations = df.nunique()
 columns_to_keep = variations[variations > LOW_VARIATION_THRESHOLD].index
 columns_dropped_variation = set(df.columns) - set(columns_to_keep)
 if columns_dropped_variation:
-    print(f"  Dropping {len(columns_dropped_variation)} low variation columns: {list(columns_dropped_variation)}")
+    logging.info(f"  Dropping {len(columns_dropped_variation)} low variation columns: {list(columns_dropped_variation)}")
     df = df[columns_to_keep]
 else:
-    print("  No low variation columns found to drop.")
-print(f"  Shape after dropping low variation columns: {df.shape}")
+    logging.info("  No low variation columns found to drop.")
+logging.info(f"  Shape after dropping low variation columns: {df.shape}")
 
 # 4. Drop Columns by Keywords and Specific Names
-print("\nStep 4: Dropping columns by keywords and specific names...")
+logging.info("\nStep 4: Dropping columns by keywords and specific names...")
 df = drop_columns_by_keywords(df, KEYWORDS_TO_DROP)
 df = drop_specific_columns(df, SPECIFIC_COLUMNS_TO_DROP)
 df = handle_percent_columns(df, PERCENT_COLUMNS_ACTION)
 df = handle_directional_columns(df, DIRECTIONAL_COLUMNS_ACTION)
-print(f"  Shape after dropping keyword/specific columns: {df.shape}")
+logging.info(f"  Shape after dropping keyword/specific columns: {df.shape}")
 
 
 # 5. Drop Older Version ('_o') Columns
-print("\nStep 5: Dropping older version ('_o') columns where updated ('_u') exists...")
+logging.info("\nStep 5: Dropping older version ('_o') columns where updated ('_u') exists...")
 df = drop_older_version_columns(df)
-print(f"  Shape after dropping older version columns: {df.shape}")
+logging.info(f"  Shape after dropping older version columns: {df.shape}")
 
 # 6. Specific Value Replacements & Type Conversion
-print("\nStep 6: Performing specific value replacements...")
+logging.info("\nStep 6: Performing specific value replacements...")
 for column, replacements in COLUMNS_FOR_VALUE_REPLACEMENT.items():
     if column in df.columns:
-        print(f"  Replacing values in column '{column}': {replacements}")
+        logging.info(f"  Replacing values in column '{column}': {replacements}")
         df[column] = df[column].replace(replacements)
         # Attempt to convert to numeric after replacements, coercing errors
         # This turns non-numeric values (like remaining strings) into NaN
         df[column] = pd.to_numeric(df[column], errors='coerce')
         if df[column].isnull().any():
-             print(f"    Note: Column '{column}' contains non-numeric values after replacement, converted to NaN.")
+             logging.info(f"    Note: Column '{column}' contains non-numeric values after replacement, converted to NaN.")
     else:
-        print(f"  Warning: Column '{column}' not found for value replacement.")
+        logging.warning(f"  Column '{column}' not found for value replacement.")
 
 # 7. Impute Missing Values
-print("\nStep 7: Imputing missing values...")
+logging.info("\nStep 7: Imputing missing values...")
 numeric_cols_imputed = []
 object_cols_imputed = []
 
@@ -212,20 +245,20 @@ for col in df.columns:
             df[col] = df[col].replace('', 'un') # Catch any residual empty strings
             object_cols_imputed.append(col)
 
-print(f"  Imputed numeric columns with mean: {numeric_cols_imputed if numeric_cols_imputed else 'None'}")
-print(f"  Imputed object columns with 'un': {object_cols_imputed if object_cols_imputed else 'None'}")
+logging.info(f"  Imputed numeric columns with mean: {numeric_cols_imputed if numeric_cols_imputed else 'None'}")
+logging.info(f"  Imputed object columns with 'un': {object_cols_imputed if object_cols_imputed else 'None'}")
 
 # 8. Add Random Feature (Optional - kept from original)
-print("\nStep 8: Adding a random feature column...")
+logging.info("\nStep 8: Adding a random feature column...")
 df['random_feature'] = np.random.rand(len(df))
-print("  'random_feature' column added.")
+logging.info("  'random_feature' column added.")
 
 # 9. Save Cleaned Data
-print(f"\nStep 9: Saving cleaned data to {OUTPUT_CSV_PATH}...")
+logging.info(f"\nStep 9: Saving cleaned data to {OUTPUT_CSV_PATH}...")
 try:
     df.to_csv(OUTPUT_CSV_PATH, index=False, encoding='utf-8') # Use utf-8 for broader compatibility
-    print(f"  Successfully saved cleaned data. Final shape: {df.shape}")
+    logging.info(f"  Successfully saved cleaned data. Final shape: {df.shape}")
 except Exception as e:
-    print(f"Error saving CSV: {e}")
+    logging.error(f"Error saving CSV: {e}")
 
-print("\nData cleaning process finished.")
+logging.info("\nData cleaning process finished.")

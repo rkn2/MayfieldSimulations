@@ -9,7 +9,7 @@ from sklearn.pipeline import Pipeline
 import warnings
 
 # --- Configuration ---
-DATA_DIR = 'processed_ml_data'
+DATA_DIR = '../processed_ml_data'
 MODEL_SAVE_PATH = os.path.join(DATA_DIR, 'best_tuned_classifier.pkl')
 PREPROCESSOR_SAVE_PATH = os.path.join(DATA_DIR, 'preprocessor.pkl')
 RESULTS_DIR = 'pdp_results'
