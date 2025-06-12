@@ -9,6 +9,7 @@ import seaborn as sns
 import re
 import logging
 import sys
+import json
 
 # --- Clustering & Association ---
 from dython.nominal import associations
@@ -61,6 +62,7 @@ setup_logging()
 # --- Configuration ---
 DATA_DIR = 'processed_ml_data'
 BASE_RESULTS_DIR = 'clustering_performance_results'
+BEST_THRESHOLD_FILE = os.path.join(BASE_RESULTS_DIR, 'best_threshold.json')
 TRAIN_X_PATH = os.path.join(DATA_DIR, 'X_train_processed.pkl')
 TRAIN_Y_PATH = os.path.join(DATA_DIR, 'y_train.pkl')
 TEST_X_PATH = os.path.join(DATA_DIR, 'X_test_processed.pkl')
@@ -303,6 +305,15 @@ def main():
     performance_df = pd.DataFrame(all_performance_results)
     logging.info("\n\n===== Overall Performance Summary =====")
     logging.info(f"\n{performance_df.to_string(index=False)}")
+
+    # Find and save the best threshold
+    best_threshold_row = performance_df.sort_values(by=METRIC_FOR_FINAL_COMPARISON_PLOT, ascending=False).iloc[0]
+    best_threshold = best_threshold_row['Threshold Value']
+    logging.info(f"\nBest performing threshold based on '{METRIC_FOR_FINAL_COMPARISON_PLOT}': {best_threshold}")
+    with open(BEST_THRESHOLD_FILE, 'w') as f:
+        json.dump({'best_threshold': best_threshold}, f)
+    logging.info(f"Best threshold saved to: {BEST_THRESHOLD_FILE}")
+
 
     plt.figure(figsize=(14, 8))
     sns.barplot(x="Feature Set Name", y=METRIC_FOR_FINAL_COMPARISON_PLOT, data=performance_df, palette="viridis")

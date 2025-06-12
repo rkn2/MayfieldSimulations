@@ -6,6 +6,7 @@ import warnings
 import re
 import logging
 import sys
+import json
 
 # --- Clustering & Association ---
 from dython.nominal import associations
@@ -34,12 +35,10 @@ setup_logging()
 # --- Configuration ---
 DATA_DIR = 'processed_ml_data'
 BASE_RESULTS_DIR = 'cluster_exploration_results'
+BEST_THRESHOLD_FILE = os.path.join('clustering_performance_results', 'best_threshold.json')
 
 # Input data paths
 TRAIN_X_PATH = os.path.join(DATA_DIR, 'X_train_processed.pkl')
-
-# --- USER-DEFINED CLUSTERING THRESHOLD ---
-USER_DEFINED_CLUSTERING_THRESHOLD = 0.5
 
 # --- USER-DEFINED RANDOM FEATURE ---
 RANDOM_FEATURE_NAME = "num_random_feature"
@@ -131,7 +130,9 @@ def main():
     logging.info(f"--- Starting Script: 5_clusterMeaning.py ---")
     warnings.filterwarnings("ignore", category=UserWarning)
 
-    current_clustering_threshold = USER_DEFINED_CLUSTERING_THRESHOLD
+    with open(BEST_THRESHOLD_FILE, 'r') as f:
+        current_clustering_threshold = json.load(f)['best_threshold']
+
     temp_random_df = pd.DataFrame(columns=[RANDOM_FEATURE_NAME])
     sanitized_random_feature_name = sanitize_feature_names_df(temp_random_df).columns[0]
 
