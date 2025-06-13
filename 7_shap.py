@@ -8,12 +8,37 @@ import shap
 import logging
 import sys
 import re
+import ast
+
+# --- Clustering & Association ---
+from dython.nominal import associations
+from scipy.cluster import hierarchy
+from scipy.spatial.distance import squareform
+
+# --- Scikit-learn ---
+from sklearn.linear_model import LogisticRegression
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, HistGradientBoostingClassifier
+from sklearn.neighbors import KNeighborsClassifier
+
+# --- Optional Imports ---
+try:
+    import xgboost as xgb
+
+    XGB_AVAILABLE = True
+except ImportError:
+    XGB_AVAILABLE = False
+try:
+    import lightgbm as lgb
+
+    LGBM_AVAILABLE = True
+except ImportError:
+    LGBM_AVAILABLE = False
 
 
 # --- Logging Configuration Setup ---
 def setup_logging(log_file='pipeline.log'):
     """Sets up logging to both a file and the console."""
-    # Append to the file created by previous scripts
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -21,166 +46,199 @@ def setup_logging(log_file='pipeline.log'):
             logging.FileHandler(log_file, mode='a'),
             logging.StreamHandler(sys.stdout)
         ],
-        force=True  # Ensures the handler is added even if logging was configured before
+        force=True
     )
 
 
-# Call the setup function
 setup_logging()
 
 # --- Configuration ---
 DATA_DIR = 'processed_ml_data'
-MODEL_DIR = 'processed_ml_data'
-RESULTS_DIR = 'shap_plots'
-BEST_MODEL_FILENAME = 'best_tuned_classifier.pkl'
-PREPROCESSOR_FILENAME = 'preprocessor.pkl'
+RESULTS_DIR_4 = 'clustering_performance_results'
+BASE_RESULTS_DIR = 'shap_results_top3'  # New directory for these specific results
 
 # --- Paths ---
-BEST_MODEL_PATH = os.path.join(MODEL_DIR, BEST_MODEL_FILENAME)
-PREPROCESSOR_PATH = os.path.join(MODEL_DIR, PREPROCESSOR_FILENAME)
-X_TRAIN_PATH = os.path.join(DATA_DIR, 'X_train_processed.pkl')
-X_TEST_PATH = os.path.join(DATA_DIR, 'X_test_processed.pkl')
+TRAIN_X_PATH = os.path.join(DATA_DIR, 'X_train_processed.pkl')
+TRAIN_Y_PATH = os.path.join(DATA_DIR, 'y_train.pkl')
+TEST_X_PATH = os.path.join(DATA_DIR, 'X_test_processed.pkl')
 Y_TEST_PATH = os.path.join(DATA_DIR, 'y_test.pkl')
+DETAILED_PERFORMANCE_CSV = os.path.join(RESULTS_DIR_4,
+                                        'clustering_performance_detailed_results_all_models_single_run.csv')
 
 # --- SHAP Configuration ---
 N_SHAP_SAMPLES = 1000
 N_BACKGROUND_SAMPLES = 200
 N_TOP_FEATURES_TO_PLOT = 15
+CLUSTERING_LINKAGE_METHOD = 'average'
 
 
-# *** NEW ***: Helper function to ensure consistent feature naming
+# --- Helper Functions ---
 def sanitize_feature_names(df):
     """Sanitizes DataFrame column names to match model's expectations."""
     if not isinstance(df, pd.DataFrame):
         return df
-
-    # This regex replaces any character that is not a letter, number, or underscore with a single underscore.
-    # It's crucial for matching names from OneHotEncoder that contain spaces or special characters.
     sanitized_cols = {col: re.sub(r'[^A-Za-z0-9_]+', '_', col) for col in df.columns}
     df.rename(columns=sanitized_cols, inplace=True)
     return df
 
 
-def load_data_and_model():
-    """Loads all necessary data and the trained model."""
-    logging.info("--- Loading Data and Model for SHAP analysis ---")
-    if not all(os.path.exists(p) for p in [X_TRAIN_PATH, X_TEST_PATH, Y_TEST_PATH, BEST_MODEL_PATH, PREPROCESSOR_PATH]):
-        logging.error(
-            "Error: Not all required files were found. Please ensure scripts 1, 2, and 3 have been run successfully.")
-        sys.exit(1)
-
+def load_data(file_path, description="data"):
+    """Loads pickled data."""
+    logging.info(f"Loading {description} from {file_path}...")
     try:
-        X_train_orig = joblib.load(X_TRAIN_PATH)
-        X_test_orig = joblib.load(X_TEST_PATH)
-        y_test = joblib.load(Y_TEST_PATH)
-        model = joblib.load(BEST_MODEL_PATH)
-        preprocessor = joblib.load(PREPROCESSOR_PATH)
-        logging.info("  Successfully loaded all required files.")
-
-        # This block is crucial. It reconstructs DataFrames with proper feature names.
-        if not isinstance(X_train_orig, pd.DataFrame) or not isinstance(X_test_orig, pd.DataFrame):
-            logging.warning(
-                "Warning: Processed data is not in a DataFrame format. Attempting to reconstruct DataFrame with feature names.")
-            try:
-                # Use the preprocessor to get the raw feature names
-                feature_names = preprocessor.get_feature_names_out()
-                X_train = pd.DataFrame(X_train_orig, columns=feature_names)
-                X_test = pd.DataFrame(X_test_orig, columns=feature_names)
-                logging.info("  Successfully reconstructed DataFrames.")
-            except Exception as e:
-                logging.error(
-                    f"Error: Could not construct DataFrame from processed data. Feature names will be missing. Error: {e}",
-                    exc_info=True)
-                sys.exit(1)
-        else:
-            # If data is already a DataFrame, ensure it has column names
-            X_train = X_train_orig.copy()
-            X_test = X_test_orig.copy()
-
-        # *** FIXED ***: Apply the same sanitization to the reconstructed DataFrames
-        logging.info("  Sanitizing feature names to match model's fit-time names...")
-        X_train = sanitize_feature_names(X_train)
-        X_test = sanitize_feature_names(X_test)
-        logging.info("  Feature names sanitized.")
-
-        return X_train, X_test, y_test, model, preprocessor
-    except Exception as e:
-        logging.error(f"An error occurred while loading files: {e}", exc_info=True)
+        data = joblib.load(file_path)
+        logging.info(f"  Successfully loaded: {description}")
+        return data
+    except FileNotFoundError:
+        logging.error(f"Error: {description} file not found at {file_path}. Exiting.")
         sys.exit(1)
+    except Exception as e:
+        logging.error(f"Error loading {description} from {file_path}: {e}", exc_info=True)
+        sys.exit(1)
+
+
+def get_selected_features_by_clustering(original_df, distance_thresh, linkage_meth):
+    """Recreates the clustered feature set for a given threshold."""
+    if distance_thresh is None or pd.isna(distance_thresh):
+        logging.info("  Threshold is None. Using all original features.")
+        return original_df.columns.tolist()
+
+    feature_names_list = original_df.columns.tolist()
+    if len(feature_names_list) <= 1: return feature_names_list
+
+    logging.info("  Calculating association matrix for clustering...")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        assoc_df = associations(original_df, nom_nom_assoc='cramer', compute_only=True)['corr'].fillna(0)
+
+    logging.info("  Performing hierarchical clustering...")
+    distance_mat = 1 - np.abs(assoc_df.values)
+    np.fill_diagonal(distance_mat, 0)
+    condensed_dist_mat = squareform(distance_mat, checks=False)
+    if condensed_dist_mat.shape[0] == 0: return feature_names_list
+
+    linked = hierarchy.linkage(condensed_dist_mat, method=linkage_meth)
+    cluster_labels_arr = hierarchy.fcluster(linked, t=distance_thresh, criterion='distance')
+
+    selected_representatives_list = []
+    for i in range(1, len(np.unique(cluster_labels_arr)) + 1):
+        cluster_indices = [idx for idx, label in enumerate(cluster_labels_arr) if label == i]
+        if not cluster_indices: continue
+
+        if len(cluster_indices) == 1:
+            selected_representatives_list.append(feature_names_list[cluster_indices[0]])
+        else:
+            sum_abs_assoc = np.abs(assoc_df.iloc[cluster_indices, cluster_indices].values).sum(axis=1)
+            rep_local_idx = np.argmax(sum_abs_assoc)
+            selected_representatives_list.append(feature_names_list[cluster_indices[rep_local_idx]])
+
+    return sorted(list(set(selected_representatives_list)))
 
 
 def main():
-    """Main function to run SHAP analysis."""
-    logging.info(f"--- Starting Script: 7_shap.py ---")
+    """Main function to run SHAP analysis on the top 3 model combinations."""
+    logging.info(f"--- Starting Script: 7_shap.py (Top 3 Model Combinations) ---")
     warnings.filterwarnings("ignore", category=UserWarning)
 
-    # 1. Load data
-    X_train, X_test, y_test, model, preprocessor = load_data_and_model()
-
-    logging.info(f"\nModel loaded: {type(model).__name__}")
-
-    os.makedirs(RESULTS_DIR, exist_ok=True)
-    logging.info(f"SHAP plots will be saved to '{RESULTS_DIR}/'")
-
-    # 2. Prepare data for SHAP
-    if N_SHAP_SAMPLES and N_SHAP_SAMPLES < len(X_test):
-        logging.info(f"\nUsing a random sample of {N_SHAP_SAMPLES} data points from the test set for SHAP analysis.")
-        X_test_sample = X_test.sample(N_SHAP_SAMPLES, random_state=42)
-    else:
-        logging.info("\nUsing the full test set for SHAP analysis.")
-        X_test_sample = X_test
-
-    n_background = min(N_BACKGROUND_SAMPLES, len(X_train))
-    logging.info(f"Creating background data with {n_background} samples from the training set...")
-    if n_background == 0:
-        logging.error("Error: Training data is empty. Cannot create a background dataset for SHAP.")
-        sys.exit(1)
-    background_data = X_train.sample(n_background, random_state=42)
-
-    # 3. Initialize SHAP Explainer
-    logging.info("\n--- Calculating SHAP Values ---")
+    # Step 1: Identify the top 3 model-feature set combinations
+    logging.info(f"Identifying top 3 combinations from '{DETAILED_PERFORMANCE_CSV}'...")
     try:
-        # No change needed here anymore because the DataFrames now have the correct names
-        explainer = shap.Explainer(model.predict_proba, background_data)
-        shap_values = explainer(X_test_sample)
-        logging.info("SHAP values calculated successfully.")
-
-    except Exception as e:
-        logging.error(f"Error during SHAP value calculation: {e}", exc_info=True)
-        logging.error("Please ensure the 'shap' library is installed (`pip install shap`).")
+        performance_df = pd.read_csv(DETAILED_PERFORMANCE_CSV)
+        top_3_combinations = performance_df.sort_values(by='Test F1 Weighted', ascending=False).head(3)
+        logging.info("Top 3 performing combinations identified:")
+        logging.info(top_3_combinations[['Model', 'Feature Set Name', 'Test F1 Weighted']].to_string())
+    except (FileNotFoundError, IndexError) as e:
+        logging.error(f"FATAL: Could not identify top models from '{DETAILED_PERFORMANCE_CSV}'. Error: {e}")
         sys.exit(1)
 
+    # Step 2: Set up all possible models and load all necessary data
+    all_models = {
+        "LightGBM": lgb.LGBMClassifier(random_state=42, verbosity=-1) if LGBM_AVAILABLE else None,
+        "Gradient Boosting": GradientBoostingClassifier(random_state=42),
+        "XGBoost": xgb.XGBClassifier(random_state=42, eval_metric='mlogloss') if XGB_AVAILABLE else None,
+        "Hist Gradient Boosting": HistGradientBoostingClassifier(random_state=42),
+        "KNN": KNeighborsClassifier(),
+        "Logistic Regression": LogisticRegression(random_state=42, max_iter=2000),
+        "Random Forest": RandomForestClassifier(random_state=42),
+        "Decision Tree": DecisionTreeClassifier(random_state=42)
+    }
+
+    X_train_orig = load_data(TRAIN_X_PATH, "original X_train")
+    y_train = load_data(TRAIN_Y_PATH, "original y_train")
+    X_test_orig = load_data(TEST_X_PATH, "original X_test")
+    y_test = load_data(Y_TEST_PATH, "original y_test")
+
+    X_train_sanitized = sanitize_feature_names(pd.DataFrame(X_train_orig))
+    X_test_sanitized = sanitize_feature_names(pd.DataFrame(X_test_orig)).reindex(columns=X_train_sanitized.columns,
+                                                                                 fill_value=0)
+
+    # Step 3: Loop through each top combination and run analysis
+    all_shap_values = {}
+    all_test_samples = {}
+
+    for index, combo_row in top_3_combinations.iterrows():
+        model_name = combo_row['Model']
+        threshold = combo_row['Threshold Value']
+        params_str = combo_row['Best Params']
+
+        model_key = f"{model_name}_(Thresh_{'Orig' if pd.isna(threshold) else threshold})"
+        safe_model_key = re.sub(r'[^A-Za-z0-9_.-]+', '_', model_key)
+
+        logging.info(f"\n===== Analyzing Combination: {model_key} =====")
+
+        selected_features = get_selected_features_by_clustering(X_train_sanitized, threshold, CLUSTERING_LINKAGE_METHOD)
+        X_train_selected = X_train_sanitized[selected_features]
+        X_test_selected = X_test_sanitized[selected_features]
+
+        model_template = all_models.get(model_name)
+        if model_template is None: continue
+
+        best_params = ast.literal_eval(params_str) if isinstance(params_str, str) and params_str != 'nan' else {}
+        model_instance = model_template.set_params(**best_params)
+
+        logging.info(f"  Retraining {model_name} on {len(selected_features)} features...")
+        model_instance.fit(X_train_selected, y_train.ravel())
+
+        test_sample = X_test_selected.sample(min(N_SHAP_SAMPLES, len(X_test_selected)), random_state=42)
+        background_data = X_train_selected.sample(min(N_BACKGROUND_SAMPLES, len(X_train_selected)), random_state=42)
+
+        logging.info("  Calculating SHAP values...")
+        explainer = shap.Explainer(model_instance.predict_proba, background_data)
+        shap_values = explainer(test_sample)
+
+        all_shap_values[safe_model_key] = shap_values
+        all_test_samples[safe_model_key] = test_sample
+
+    os.makedirs(BASE_RESULTS_DIR, exist_ok=True)
     unique_classes = sorted(np.unique(y_test))
-    class_names = [f"Class {c}" for c in unique_classes]
-    logging.info(f"\nFound unique classes in test set: {unique_classes}. Analyzing all classes.")
 
-    # 4. Create and Save Composite Bar Chart using SHAP's built-in functionality
-    logging.info("\n--- Generating Composite SHAP Bar Plot ---")
-    plt.figure()
-    shap.summary_plot(shap_values, X_test_sample, plot_type="bar", class_names=class_names,
-                      max_display=N_TOP_FEATURES_TO_PLOT, show=False)
-    plt.title(f'Top {N_TOP_FEATURES_TO_PLOT} Overall Feature Importances', fontsize=16)
-    plt.tight_layout()
-    plt.savefig(os.path.join(RESULTS_DIR, 'shap_summary_bar_composite.png'))
-    plt.close()
-    logging.info("    Saved composite bar chart to shap_summary_bar_composite.png")
+    # --- FIXED: Generate separate bar and beeswarm plots for each model ---
+    logging.info("\n--- Generating SHAP Plots for Each Top Model ---")
 
-    # 5. Loop to generate individual Beeswarm plots
-    for i, target_class_to_explain in enumerate(unique_classes):
-        logging.info(f"\n============================================================")
-        logging.info(f"  ANALYZING SHAP VALUES FOR CLASS: {target_class_to_explain}")
-        logging.info(f"============================================================")
+    for model_key, shap_values in all_shap_values.items():
+        test_sample = all_test_samples[model_key]
+        logging.info(f"\n--- Generating plots for model: {model_key} ---")
 
-        logging.info(f"\n  Generating SHAP Beeswarm Summary Plot for Class {target_class_to_explain}...")
+        # Overall Bar Chart for this model
         plt.figure()
-        shap.summary_plot(shap_values[:, :, i], X_test_sample, max_display=N_TOP_FEATURES_TO_PLOT, show=False)
-        plt.title(f'SHAP Summary Plot (for class {target_class_to_explain})', fontsize=14)
+        shap.summary_plot(shap_values, test_sample, plot_type="bar", max_display=N_TOP_FEATURES_TO_PLOT, show=False)
+        plt.title(f'Overall Feature Importance\n({model_key})', fontsize=16)
         plt.tight_layout()
-        plt.savefig(os.path.join(RESULTS_DIR, f'shap_summary_beeswarm_class_{target_class_to_explain}.png'))
+        plt.savefig(os.path.join(BASE_RESULTS_DIR, f'shap_bar_composite_{model_key}.png'))
         plt.close()
-        logging.info(f"    Saved shap_summary_beeswarm_class_{target_class_to_explain}.png")
+        logging.info(f"  Saved composite bar chart for {model_key}.")
 
-    logging.info("\nSHAP analysis complete. All plots saved in the 'shap_plots' directory.")
+        # Beeswarm Plots per class for this model
+        for i, target_class in enumerate(unique_classes):
+            plt.figure()
+            shap.summary_plot(shap_values[:, :, i], test_sample, max_display=N_TOP_FEATURES_TO_PLOT, show=False)
+            plt.title(f'SHAP Summary for Class {target_class}\n({model_key})', fontsize=14)
+            plt.tight_layout()
+            plt.savefig(os.path.join(BASE_RESULTS_DIR, f'shap_beeswarm_class_{target_class}_{model_key}.png'))
+            plt.close()
+            logging.info(f"  Saved beeswarm plot for Class {target_class}, Model {model_key}.")
+
+    logging.info(f"\nSHAP analysis for top 3 models complete. Plots saved to '{BASE_RESULTS_DIR}/'")
     logging.info(f"--- Finished Script: 7_shap.py ---")
 
 
