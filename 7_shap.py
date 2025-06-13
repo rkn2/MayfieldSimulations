@@ -9,6 +9,7 @@ import logging
 import sys
 import re
 import ast
+import seaborn as sns
 
 # --- Clustering & Association ---
 from dython.nominal import associations
@@ -181,7 +182,7 @@ def main():
         threshold = combo_row['Threshold Value']
         params_str = combo_row['Best Params']
 
-        model_key = f"{model_name}_(Thresh_{'Orig' if pd.isna(threshold) else threshold})"
+        model_key = f"{model_name} (Thresh: {'Orig' if pd.isna(threshold) else threshold})"
         safe_model_key = re.sub(r'[^A-Za-z0-9_.-]+', '_', model_key)
 
         logging.info(f"\n===== Analyzing Combination: {model_key} =====")
@@ -212,24 +213,55 @@ def main():
     os.makedirs(BASE_RESULTS_DIR, exist_ok=True)
     unique_classes = sorted(np.unique(y_test))
 
-    # --- FIXED: Generate separate bar and beeswarm plots for each model ---
-    logging.info("\n--- Generating SHAP Plots for Each Top Model ---")
+    # --- Step 4: Log and plot the composite bar chart ---
+    logging.info("\n--- Generating Composite SHAP Bar Chart ---")
+    all_importance_dfs = []
+    for model_key, shap_values in all_shap_values.items():
+        mean_abs_shap = np.abs(shap_values.values).mean(axis=(0, 2))
+        df = pd.DataFrame({
+            'Feature': all_test_samples[model_key].columns,
+            'Importance': mean_abs_shap,
+            'Model': model_key
+        })
+        all_importance_dfs.append(df)
 
+    combined_importance_df = pd.concat(all_importance_dfs, ignore_index=True)
+
+    # *** NEW *** Log the full data for the composite bar chart
+    logging.info("\n--- Data for Composite Bar Chart ---")
+    logging.info(f"\n{combined_importance_df.sort_values(by='Importance', ascending=False).to_string()}")
+
+    top_features_order = combined_importance_df.groupby('Feature')['Importance'].max().nlargest(
+        N_TOP_FEATURES_TO_PLOT).index
+    plot_df = combined_importance_df[combined_importance_df['Feature'].isin(top_features_order)]
+
+    plt.figure(figsize=(16, 12))
+    sns.barplot(x='Importance', y='Feature', hue='Model', data=plot_df, palette='viridis', order=top_features_order)
+    plt.title(f'Top {N_TOP_FEATURES_TO_PLOT} Feature Importances for Top 3 Models', fontsize=16)
+    plt.xlabel('Mean Absolute SHAP Value (Average Impact on Model Output Magnitude)', fontsize=12)
+    plt.ylabel('Feature Cluster', fontsize=12)
+    plt.legend(title='Model (Threshold)')
+    plt.tight_layout()
+    plt.savefig(os.path.join(BASE_RESULTS_DIR, 'shap_summary_bar_composite_top3.png'))
+    plt.close()
+    logging.info("  Saved composite bar chart.")
+
+    # Step 5: Log data for and create separate beeswarm plots
+    logging.info("\n--- Generating SHAP Beeswarm Plots ---")
     for model_key, shap_values in all_shap_values.items():
         test_sample = all_test_samples[model_key]
-        logging.info(f"\n--- Generating plots for model: {model_key} ---")
-
-        # Overall Bar Chart for this model
-        plt.figure()
-        shap.summary_plot(shap_values, test_sample, plot_type="bar", max_display=N_TOP_FEATURES_TO_PLOT, show=False)
-        plt.title(f'Overall Feature Importance\n({model_key})', fontsize=16)
-        plt.tight_layout()
-        plt.savefig(os.path.join(BASE_RESULTS_DIR, f'shap_bar_composite_{model_key}.png'))
-        plt.close()
-        logging.info(f"  Saved composite bar chart for {model_key}.")
-
-        # Beeswarm Plots per class for this model
         for i, target_class in enumerate(unique_classes):
+            logging.info(f"\n--- Data for Beeswarm Plot: {model_key}, Class {target_class} ---")
+
+            # *** NEW *** Calculate and log the data for this specific plot
+            class_shap_values = shap_values[:, :, i]
+            mean_abs_shap_class = np.abs(class_shap_values.values).mean(axis=0)
+            class_importance_df = pd.DataFrame({
+                'Feature': test_sample.columns,
+                'Mean Absolute SHAP': mean_abs_shap_class
+            }).sort_values(by='Mean Absolute SHAP', ascending=False)
+            logging.info(f"\n{class_importance_df.head(N_TOP_FEATURES_TO_PLOT).to_string()}")
+
             plt.figure()
             shap.summary_plot(shap_values[:, :, i], test_sample, max_display=N_TOP_FEATURES_TO_PLOT, show=False)
             plt.title(f'SHAP Summary for Class {target_class}\n({model_key})', fontsize=14)
@@ -244,4 +276,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
