@@ -19,23 +19,26 @@ from scipy.cluster import hierarchy
 from scipy.spatial.distance import squareform
 from sklearn.linear_model import LogisticRegression
 from sklearn.tree import DecisionTreeClassifier
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, HistGradientBoostingClassifier
+from sklearn.neighbors import KNeighborsClassifier
 
 try:
     import xgboost as xgb
+
     XGB_AVAILABLE = True
 except ImportError:
     XGB_AVAILABLE = False
 try:
     import lightgbm as lgb
+
     LGBM_AVAILABLE = True
 except ImportError:
     LGBM_AVAILABLE = False
 
+
 # --- Logging Configuration Setup ---
 def setup_logging(log_file='pipeline.log'):
     """Sets up logging to both a file and the console."""
-    # Append to the file created by previous scripts
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -43,31 +46,33 @@ def setup_logging(log_file='pipeline.log'):
             logging.FileHandler(log_file, mode='a'),
             logging.StreamHandler(sys.stdout)
         ],
-        force=True # Ensures the handler is added even if logging was configured before
+        force=True
     )
 
-# Call the setup function
+
 setup_logging()
 
 # --- Configuration ---
 DATA_DIR = 'processed_ml_data'
+RESULTS_DIR_4 = 'clustering_performance_results'
 BASE_RESULTS_DIR = 'cluster_importance_results_final'
-BEST_THRESHOLD_FILE = os.path.join('clustering_performance_results', 'best_threshold.json')
-TOP_MODELS_FILE = os.path.join('clustering_performance_results', 'top_models.json')
-
-
-CLUSTERING_LINKAGE_METHOD = 'average'
-SCORING_METRIC_FOR_IMPORTANCE = 'f1_weighted'
-N_TOP_CLUSTERS_TO_PLOT = 20
-RANDOM_STATE = 42
-N_PERMUTATION_REPEATS = 10
 
 # --- Paths ---
 TRAIN_X_PATH = os.path.join(DATA_DIR, 'X_train_processed.pkl')
 TRAIN_Y_PATH = os.path.join(DATA_DIR, 'y_train.pkl')
 TEST_X_PATH = os.path.join(DATA_DIR, 'X_test_processed.pkl')
 TEST_Y_PATH = os.path.join(DATA_DIR, 'y_test.pkl')
-CV_RESULTS_CSV_PATH = os.path.join(DATA_DIR, 'model_tuned_cv_results.csv')
+DETAILED_PERFORMANCE_CSV = os.path.join(RESULTS_DIR_4,
+                                        'clustering_performance_detailed_results_all_models_single_run.csv')
+
+# --- Analysis Settings ---
+CLUSTERING_LINKAGE_METHOD = 'average'
+SCORING_METRIC_FOR_IMPORTANCE = 'f1_weighted'
+PERFORMANCE_THRESHOLD = 0.8  # New threshold for selecting models
+P_VALUE_THRESHOLD = 0.05  # Significance level for feature importance
+RANDOM_STATE = 42
+N_PERMUTATION_REPEATS = 200
+
 
 # --- Helper Functions ---
 def load_data(file_path, description="data"):
@@ -78,10 +83,11 @@ def load_data(file_path, description="data"):
         return data
     except FileNotFoundError:
         logging.error(f"Error: {description} file not found at {file_path}. Exiting.")
-        exit()
+        sys.exit(1)
     except Exception as e:
         logging.error(f"Error loading {description} from {file_path}: {e}", exc_info=True)
-        exit()
+        sys.exit(1)
+
 
 def sanitize_feature_names_df(df):
     if not isinstance(df, pd.DataFrame): return df
@@ -90,175 +96,200 @@ def sanitize_feature_names_df(df):
     df.columns = new_cols
     return df
 
+
 def get_selected_features_by_clustering(original_df, distance_thresh, linkage_meth):
+    if distance_thresh is None or pd.isna(distance_thresh):
+        logging.info("  Threshold is None. Using all original features.")
+        return original_df.columns.tolist()
+
     feature_names_list = original_df.columns.tolist()
     if len(feature_names_list) <= 1: return feature_names_list
+
     logging.info("  Calculating association matrix for clustering...")
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         assoc_df = associations(original_df, nom_nom_assoc='cramer', compute_only=True)['corr'].fillna(0)
+
     logging.info("  Performing hierarchical clustering...")
     distance_mat = 1 - np.abs(assoc_df.values)
     np.fill_diagonal(distance_mat, 0)
     condensed_dist_mat = squareform(distance_mat, checks=False)
     if condensed_dist_mat.shape[0] == 0: return feature_names_list
+
     linked = hierarchy.linkage(condensed_dist_mat, method=linkage_meth)
     cluster_labels_arr = hierarchy.fcluster(linked, t=distance_thresh, criterion='distance')
+
     selected_representatives_list = []
     for i in range(1, len(np.unique(cluster_labels_arr)) + 1):
         cluster_indices = [idx for idx, label in enumerate(cluster_labels_arr) if label == i]
+        if not cluster_indices: continue
+
         if len(cluster_indices) == 1:
             selected_representatives_list.append(feature_names_list[cluster_indices[0]])
         else:
             sum_abs_assoc = np.abs(assoc_df.iloc[cluster_indices, cluster_indices].values).sum(axis=1)
             rep_local_idx = np.argmax(sum_abs_assoc)
             selected_representatives_list.append(feature_names_list[cluster_indices[rep_local_idx]])
+
     return sorted(list(set(selected_representatives_list)))
 
-def load_best_parameters(params_csv_path):
-    logging.info(f"\nLoading best parameters from: {params_csv_path}")
-    try:
-        params_df = pd.read_csv(params_csv_path)
-        model_best_params = {}
-        for _, row in params_df.iterrows():
-            model_name = row['Model']
-            try:
-                params_str = row['Best Params']
-                if pd.isna(params_str) or params_str.lower() in ['n/a', '{}']:
-                    model_best_params[model_name] = {}
-                else:
-                    model_best_params[model_name] = ast.literal_eval(params_str)
-            except Exception as e:
-                logging.warning(f"  Could not parse params for {model_name}: {e}. Using defaults.")
-                model_best_params[model_name] = {}
-        logging.info("  Best parameters loaded successfully.")
-        return model_best_params
-    except FileNotFoundError:
-        logging.error(f"ERROR: Best parameters CSV file not found at {params_csv_path}.")
-        return None
-    except Exception as e:
-        logging.error(f"ERROR: Could not load best parameters from CSV: {e}", exc_info=True)
-        return None
 
 # --- Main Orchestration ---
 def main():
-    logging.info(f"--- Starting Script: 6_deltaAccuracy.py ---")
+    logging.info(f"--- Starting Script: 6_deltaAccuracy.py (F1 > {PERFORMANCE_THRESHOLD} with P-Value) ---")
     warnings.filterwarnings("ignore", category=UserWarning)
 
-    with open(BEST_THRESHOLD_FILE, 'r') as f:
-        USER_DEFINED_CLUSTERING_THRESHOLD = json.load(f)['best_threshold']
+    # Step 1: Identify high-performing model-feature set combinations
+    logging.info(
+        f"Identifying combinations with Test F1 Weighted > {PERFORMANCE_THRESHOLD} from '{DETAILED_PERFORMANCE_CSV}'...")
+    try:
+        performance_df = pd.read_csv(DETAILED_PERFORMANCE_CSV)
+        # ***MODIFIED***: Filter for combinations with a score greater than the threshold
+        high_performing_combinations = performance_df[
+            performance_df['Test F1 Weighted'] > PERFORMANCE_THRESHOLD].sort_values(by='Test F1 Weighted',
+                                                                                    ascending=False)
 
-    with open(TOP_MODELS_FILE, 'r') as f:
-        top_models_names = json.load(f)['top_models']
+        if high_performing_combinations.empty:
+            logging.warning(
+                f"No model combinations found with a Test F1 Weighted score > {PERFORMANCE_THRESHOLD}. Exiting.")
+            sys.exit(0)
 
+        logging.info(f"{len(high_performing_combinations)} high-performing combinations identified:")
+        logging.info(high_performing_combinations[['Model', 'Feature Set Name', 'Test F1 Weighted']].to_string())
+    except FileNotFoundError:
+        logging.error(f"FATAL: Detailed performance file not found at '{DETAILED_PERFORMANCE_CSV}'.")
+        sys.exit(1)
+    except Exception as e:
+        logging.error(f"FATAL: Could not read or process performance file. Error: {e}", exc_info=True)
+        sys.exit(1)
+
+    # Step 2: Set up models and load data
     all_models = {
         "LightGBM": lgb.LGBMClassifier(random_state=RANDOM_STATE, verbosity=-1) if LGBM_AVAILABLE else None,
-        "Logistic Regression": LogisticRegression(random_state=RANDOM_STATE, max_iter=2000),
+        "Gradient Boosting": GradientBoostingClassifier(random_state=RANDOM_STATE),
         "XGBoost": xgb.XGBClassifier(random_state=RANDOM_STATE, eval_metric='mlogloss') if XGB_AVAILABLE else None,
+        "Hist Gradient Boosting": HistGradientBoostingClassifier(random_state=RANDOM_STATE),
+        "KNN": KNeighborsClassifier(),
+        "Logistic Regression": LogisticRegression(random_state=RANDOM_STATE, max_iter=2000),
         "Random Forest": RandomForestClassifier(random_state=RANDOM_STATE),
         "Decision Tree": DecisionTreeClassifier(random_state=RANDOM_STATE)
     }
-
-    TOP_MODELS_TO_TEST = {name: model for name, model in all_models.items() if name in top_models_names and model is not None}
-    logging.info(f"Dynamically selected models for testing: {list(TOP_MODELS_TO_TEST.keys())}")
-
-
-    results_subdir = os.path.join(BASE_RESULTS_DIR, f"thresh_{USER_DEFINED_CLUSTERING_THRESHOLD}")
-    os.makedirs(results_subdir, exist_ok=True)
-
-    logging.info(f"Starting Final Cluster Importance Analysis for THRESHOLD = {USER_DEFINED_CLUSTERING_THRESHOLD}")
 
     X_train_orig = load_data(TRAIN_X_PATH, "original X_train")
     y_train = load_data(TRAIN_Y_PATH, "original y_train")
     X_test_orig = load_data(TEST_X_PATH, "original X_test")
     y_test = load_data(TEST_Y_PATH, "original y_test")
 
-    all_best_params = load_best_parameters(CV_RESULTS_CSV_PATH)
-    if all_best_params is None:
-        logging.critical("Exiting due to failure in loading model parameters.")
-        exit()
-
     X_train_sanitized = sanitize_feature_names_df(pd.DataFrame(X_train_orig))
-    X_test_sanitized = sanitize_feature_names_df(pd.DataFrame(X_test_orig)).reindex(columns=X_train_sanitized.columns, fill_value=0)
-
+    X_test_sanitized = sanitize_feature_names_df(pd.DataFrame(X_test_orig)).reindex(columns=X_train_sanitized.columns,
+                                                                                    fill_value=0)
     y_train_ravel = y_train.ravel()
     y_test_ravel = y_test.ravel()
 
-    logging.info(f"\nPerforming feature selection with optimal clustering threshold: {USER_DEFINED_CLUSTERING_THRESHOLD}...")
-    selected_features = get_selected_features_by_clustering(X_train_sanitized, USER_DEFINED_CLUSTERING_THRESHOLD,
-                                                            CLUSTERING_LINKAGE_METHOD)
-    if not selected_features:
-        logging.error("Error: No features selected by clustering. Cannot proceed.")
-        return
-    logging.info(f"  Number of representative features (clusters) selected: {len(selected_features)}")
-
-    X_train_selected = X_train_sanitized[selected_features]
-    X_test_selected = X_test_sanitized[selected_features]
-
+    # Step 3: Loop through each top combination and run analysis
     all_model_importances = []
 
-    for model_name, model_template in TOP_MODELS_TO_TEST.items():
-        logging.info(f"\n--- Analyzing Importance for Model: {model_name} ---")
+    for index, combo_row in high_performing_combinations.iterrows():
+        model_name = combo_row['Model']
+        threshold = combo_row['Threshold Value']
+        params_str = combo_row['Best Params']
 
-        model_params = all_best_params.get(model_name, {})
-        model_instance = model_template.set_params(**model_params)
+        logging.info(f"\n===== Analyzing Combination {index + 1}/{len(high_performing_combinations)} =====")
+        logging.info(f"Model: {model_name}, Threshold: {threshold}")
 
-        logging.info(f"  Retraining {model_name} on {len(selected_features)} clustered features...")
+        selected_features = get_selected_features_by_clustering(X_train_sanitized, threshold, CLUSTERING_LINKAGE_METHOD)
+        if not selected_features:
+            logging.warning(
+                f"  Skipping combination for {model_name} at threshold {threshold} as no features were selected.")
+            continue
+        logging.info(f"  Number of features for this combination: {len(selected_features)}")
+
+        X_train_selected = X_train_sanitized[selected_features]
+        X_test_selected = X_test_sanitized[selected_features]
+
+        model_template = all_models.get(model_name)
+        if model_template is None:
+            logging.warning(f"  Skipping model '{model_name}' as it's not available in this environment.")
+            continue
+
+        try:
+            best_params = ast.literal_eval(params_str) if isinstance(params_str, str) and params_str != 'nan' else {}
+        except Exception:
+            logging.warning(f"  Could not parse params for {model_name}: '{params_str}'. Using defaults.")
+            best_params = {}
+
+        model_instance = model_template.set_params(**best_params)
+
+        logging.info(f"  Retraining {model_name} on {len(selected_features)} features...")
         model_instance.fit(X_train_selected, y_train_ravel)
 
-        logging.info(f"  Calculating Permutation Importance for {model_name}...")
+        logging.info(f"  Calculating Permutation Importance...")
         scorer = make_scorer(f1_score, average='weighted', zero_division=0)
         perm_importance_result = permutation_importance(
             model_instance, X_test_selected, y_test_ravel, scoring=scorer,
             n_repeats=N_PERMUTATION_REPEATS, random_state=RANDOM_STATE, n_jobs=-1
         )
 
-        for i, rep_feature_name in enumerate(selected_features):
+        for i, feature_name in enumerate(selected_features):
             count_le_zero = np.sum(perm_importance_result.importances[i] <= 0)
             p_value = (count_le_zero + 1) / (N_PERMUTATION_REPEATS + 1)
 
             all_model_importances.append({
-                'Cluster Label': rep_feature_name,
-                'Model': model_name,
+                'Cluster Label': feature_name,
+                'Model (Thresh)': f"{model_name} ({'Orig' if pd.isna(threshold) else threshold})",
                 'Importance (Mean Drop)': perm_importance_result.importances_mean[i],
-                'Importance (Std Dev)': perm_importance_result.importances_std[i],
                 'p-value': p_value
             })
 
+    # Step 4: Visualize the results
+    if not all_model_importances:
+        logging.error("No importance results were generated. Cannot create plot.")
+        sys.exit(1)
+
     importances_df = pd.DataFrame(all_model_importances)
-    importances_df['Significant (p<0.05)'] = importances_df['p-value'] < 0.05
 
-    max_importance_per_cluster = importances_df.groupby('Cluster Label')['Importance (Mean Drop)'].max()
-    top_n_labels = max_importance_per_cluster.nlargest(N_TOP_CLUSTERS_TO_PLOT).index
+    significant_df = importances_df[importances_df['p-value'] < P_VALUE_THRESHOLD].copy()
 
-    top_n_df = importances_df[importances_df['Cluster Label'].isin(top_n_labels)]
+    if significant_df.empty:
+        logging.warning(f"No statistically significant feature clusters found with p-value < {P_VALUE_THRESHOLD}.")
+        logging.warning(
+            "Plot will be empty. Consider increasing N_PERMUTATION_REPEATS for more stable p-values or adjusting the threshold.")
+    else:
+        num_combos = len(high_performing_combinations)
+        logging.info(
+            f"Found {len(significant_df['Cluster Label'].unique())} statistically significant feature clusters to plot.")
 
-    # Log data for the plot
-    logging.info(f"\n--- Data for Top {N_TOP_CLUSTERS_TO_PLOT} Cluster Importances Plot ---")
-    logging.info(f"\n{top_n_df.to_string()}")
+        max_importance_order = significant_df.groupby('Cluster Label')['Importance (Mean Drop)'].max().sort_values(
+            ascending=False).index
 
-    plt.figure(figsize=(14, 12))
-    sns.barplot(x='Importance (Mean Drop)', y='Cluster Label', hue='Model', data=top_n_df, palette='viridis',
-                order=top_n_labels)
-    plt.title(
-        f'Top {N_TOP_CLUSTERS_TO_PLOT} Most Important Feature Clusters (Threshold={USER_DEFINED_CLUSTERING_THRESHOLD})',
-        fontsize=16, pad=20)
-    plt.xlabel(f"Mean Drop in Test {SCORING_METRIC_FOR_IMPORTANCE.replace('_', ' ').title()}", fontsize=12)
-    plt.ylabel("Feature Cluster", fontsize=12)
-    plt.legend(title='Model')
-    plt.tight_layout()
+        plt.figure(figsize=(16, max(8, len(max_importance_order) * 0.5)))
+        sns.barplot(x='Importance (Mean Drop)', y='Cluster Label', hue='Model (Thresh)', data=significant_df,
+                    palette='viridis',
+                    order=max_importance_order)
 
-    plot_save_path = os.path.join(results_subdir, "final_top_cluster_importances_multi_model.png")
-    plt.savefig(plot_save_path)
-    logging.info(f"\nFinal multi-model importance plot saved to: {plot_save_path}")
-    plt.show()
+        plot_title = f'Statistically Significant Feature Clusters (p < {P_VALUE_THRESHOLD}) for Top {num_combos} Model Combinations (F1 > {PERFORMANCE_THRESHOLD})'
+        plt.title(plot_title, fontsize=16, pad=20)
+        plt.xlabel(f"Mean Drop in Test {SCORING_METRIC_FOR_IMPORTANCE.replace('_', ' ').title()}", fontsize=12)
+        plt.ylabel("Feature Cluster Representative", fontsize=12)
+        plt.legend(title='Model (Threshold)')
+        plt.tight_layout()
 
-    logging.info("\n--- Full Cluster Importance Results ---")
+        results_subdir = os.path.join(BASE_RESULTS_DIR, f"f1_gt_{str(PERFORMANCE_THRESHOLD).replace('.', '')}_combos")
+        os.makedirs(results_subdir, exist_ok=True)
+
+        plot_save_path = os.path.join(results_subdir, "significant_cluster_importances.png")
+        plt.savefig(plot_save_path, bbox_inches='tight')
+        logging.info(f"\nFinal importance plot saved to: {plot_save_path}")
+        plt.show()
+
+    logging.info("\n--- Full Cluster Importance Results (Top Performing Combinations) ---")
     with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 1000):
-        logging.info(f"\n{importances_df.sort_values(by=['Model', 'Importance (Mean Drop)'], ascending=[True, False]).to_string()}")
+        logging.info(
+            f"\n{importances_df.sort_values(by=['Model (Thresh)', 'Importance (Mean Drop)'], ascending=[True, False]).to_string()}")
 
-    logging.info(f"--- Finished Script: 6_deltaAccuracy.py ---")
+    logging.info(f"--- Finished Script: 6_deltaAccuracy.py (F1 > {PERFORMANCE_THRESHOLD} with P-Value) ---")
 
 
 if __name__ == '__main__':
     main()
+
