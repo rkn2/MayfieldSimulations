@@ -328,6 +328,41 @@ def run_benchmarking_for_feature_set(x_train_fs, y_train_fs, x_test_fs, y_test_f
     return pd.DataFrame(all_models_results_for_feature_set)
 
 
+def print_top_models(results_path, threshold=0.7):
+    """
+    Loads the final performance results, filters for models with
+    Test F1 Weighted score above a threshold, and prints them.
+    """
+    logging.info(f"\n===== Models with Test F1 Weighted > {threshold} =====")
+    try:
+        # Load the detailed results CSV
+        results_df = pd.read_csv(results_path)
+
+        # Define the metric and filter
+        metric_col = 'Test F1 Weighted'
+        if metric_col not in results_df.columns:
+            logging.error(f"Cannot find column '{metric_col}' in {results_path}. Aborting top model summary.")
+            return
+
+        top_performers = results_df[results_df[metric_col] > threshold].copy()
+
+        if top_performers.empty:
+            logging.info(f"No models found with {metric_col} > {threshold}.")
+            return
+
+        # Select columns to display and sort
+        display_cols = ['Model', 'Feature Set Name', metric_col]
+        top_performers_sorted = top_performers[display_cols].sort_values(by=metric_col, ascending=False)
+
+        # Print the results in a markdown-friendly format
+        logging.info(f"\n{top_performers_sorted.to_markdown(index=False)}")
+
+    except FileNotFoundError:
+        logging.error(f"Final results file not found at {results_path}. Cannot print top models.")
+    except Exception as e:
+        logging.error(f"An error occurred while printing top models: {e}", exc_info=True)
+
+
 # --- Main Orchestration ---
 def main():
     logging.info(f"--- Starting Script: 4_clustering.py ---")
@@ -483,6 +518,9 @@ def main():
                                          "clustering_performance_detailed_results_all_models_single_run.csv")
     all_performance_results_df.to_csv(detailed_results_path, index=False, float_format='%.6f')
     logging.info(f"Detailed performance results for all models and single run saved to: {detailed_results_path}")
+
+    # Print the top-performing models to the console
+    print_top_models(detailed_results_path, threshold=0.7)
 
 
 if __name__ == '__main__':
