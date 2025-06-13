@@ -35,6 +35,12 @@ try:
     LGBM_AVAILABLE = True
 except ImportError:
     LGBM_AVAILABLE = False
+try:
+    import mord
+
+    MORD_AVAILABLE = True
+except ImportError:
+    MORD_AVAILABLE = False
 
 
 # --- Logging Configuration Setup ---
@@ -56,17 +62,17 @@ setup_logging()
 # --- Configuration ---
 DATA_DIR = 'processed_ml_data'
 RESULTS_DIR_4 = 'clustering_performance_results'
-BASE_RESULTS_DIR = 'shap_results_top3'  # New directory for these specific results
+BASE_RESULTS_DIR = 'shap_results_top_performers'
 
 # --- Paths ---
 TRAIN_X_PATH = os.path.join(DATA_DIR, 'X_train_processed.pkl')
 TRAIN_Y_PATH = os.path.join(DATA_DIR, 'y_train.pkl')
 TEST_X_PATH = os.path.join(DATA_DIR, 'X_test_processed.pkl')
-Y_TEST_PATH = os.path.join(DATA_DIR, 'y_test.pkl')
-DETAILED_PERFORMANCE_CSV = os.path.join(RESULTS_DIR_4,
-                                        'clustering_performance_detailed_results_all_models_single_run.csv')
+TEST_Y_PATH = os.path.join(DATA_DIR, 'y_test.pkl')
+DETAILED_PERFORMANCE_CSV = os.path.join(RESULTS_DIR_4, 'clustering_performance_detailed_results.csv')
 
-# --- SHAP Configuration ---
+# --- Analysis Settings ---
+PERFORMANCE_THRESHOLD = 0.8
 N_SHAP_SAMPLES = 1000
 N_BACKGROUND_SAMPLES = 200
 N_TOP_FEATURES_TO_PLOT = 15
@@ -137,17 +143,26 @@ def get_selected_features_by_clustering(original_df, distance_thresh, linkage_me
 
 
 def main():
-    """Main function to run SHAP analysis on the top 3 model combinations."""
-    logging.info(f"--- Starting Script: 7_shap.py (Top 3 Model Combinations) ---")
+    """Main function to run SHAP analysis on all high-performing model combinations."""
+    logging.info(f"--- Starting Script: 7_shap.py (F1 > {PERFORMANCE_THRESHOLD}) ---")
     warnings.filterwarnings("ignore", category=UserWarning)
 
-    # Step 1: Identify the top 3 model-feature set combinations
-    logging.info(f"Identifying top 3 combinations from '{DETAILED_PERFORMANCE_CSV}'...")
+    # Step 1: Identify high-performing model combinations
+    logging.info(
+        f"Identifying combinations with Test F1 Weighted > {PERFORMANCE_THRESHOLD} from '{DETAILED_PERFORMANCE_CSV}'...")
     try:
         performance_df = pd.read_csv(DETAILED_PERFORMANCE_CSV)
-        top_3_combinations = performance_df.sort_values(by='Test F1 Weighted', ascending=False).head(3)
-        logging.info("Top 3 performing combinations identified:")
-        logging.info(top_3_combinations[['Model', 'Feature Set Name', 'Test F1 Weighted']].to_string())
+        high_performing_combinations = performance_df[
+            performance_df['Test F1 Weighted'] > PERFORMANCE_THRESHOLD].sort_values(by='Test F1 Weighted',
+                                                                                    ascending=False)
+
+        if high_performing_combinations.empty:
+            logging.warning(
+                f"No model combinations found with a Test F1 Weighted score > {PERFORMANCE_THRESHOLD}. Exiting.")
+            sys.exit(0)
+
+        logging.info(f"{len(high_performing_combinations)} high-performing combinations identified:")
+        logging.info(high_performing_combinations[['Model', 'Feature Set Name', 'Test F1 Weighted']].to_string())
     except (FileNotFoundError, IndexError) as e:
         logging.error(f"FATAL: Could not identify top models from '{DETAILED_PERFORMANCE_CSV}'. Error: {e}")
         sys.exit(1)
@@ -161,23 +176,25 @@ def main():
         "KNN": KNeighborsClassifier(),
         "Logistic Regression": LogisticRegression(random_state=42, max_iter=2000),
         "Random Forest": RandomForestClassifier(random_state=42),
-        "Decision Tree": DecisionTreeClassifier(random_state=42)
+        "Decision Tree": DecisionTreeClassifier(random_state=42),
+        "Ordinal LAD": mord.LAD() if MORD_AVAILABLE else None,
+        "Ordinal Ridge": mord.OrdinalRidge() if MORD_AVAILABLE else None
     }
 
     X_train_orig = load_data(TRAIN_X_PATH, "original X_train")
     y_train = load_data(TRAIN_Y_PATH, "original y_train")
     X_test_orig = load_data(TEST_X_PATH, "original X_test")
-    y_test = load_data(Y_TEST_PATH, "original y_test")
+    y_test = load_data(TEST_Y_PATH, "original y_test")
 
     X_train_sanitized = sanitize_feature_names(pd.DataFrame(X_train_orig))
     X_test_sanitized = sanitize_feature_names(pd.DataFrame(X_test_orig)).reindex(columns=X_train_sanitized.columns,
                                                                                  fill_value=0)
 
-    # Step 3: Loop through each top combination and run analysis
+    # Step 3: Loop through each high-performing combination and run analysis
     all_shap_values = {}
     all_test_samples = {}
 
-    for index, combo_row in top_3_combinations.iterrows():
+    for index, combo_row in high_performing_combinations.iterrows():
         model_name = combo_row['Model']
         threshold = combo_row['Threshold Value']
         params_str = combo_row['Best Params']
@@ -213,7 +230,7 @@ def main():
     os.makedirs(BASE_RESULTS_DIR, exist_ok=True)
     unique_classes = sorted(np.unique(y_test))
 
-    # --- Step 4: Log and plot the composite bar chart ---
+    # Step 4: Create and log the composite bar chart
     logging.info("\n--- Generating Composite SHAP Bar Chart ---")
     all_importance_dfs = []
     for model_key, shap_values in all_shap_values.items():
@@ -227,7 +244,6 @@ def main():
 
     combined_importance_df = pd.concat(all_importance_dfs, ignore_index=True)
 
-    # *** NEW *** Log the full data for the composite bar chart
     logging.info("\n--- Data for Composite Bar Chart ---")
     logging.info(f"\n{combined_importance_df.sort_values(by='Importance', ascending=False).to_string()}")
 
@@ -237,23 +253,23 @@ def main():
 
     plt.figure(figsize=(16, 12))
     sns.barplot(x='Importance', y='Feature', hue='Model', data=plot_df, palette='viridis', order=top_features_order)
-    plt.title(f'Top {N_TOP_FEATURES_TO_PLOT} Feature Importances for Top 3 Models', fontsize=16)
+    plt.title(f'Top {N_TOP_FEATURES_TO_PLOT} Feature Importances for Models with F1 > {PERFORMANCE_THRESHOLD}',
+              fontsize=16)
     plt.xlabel('Mean Absolute SHAP Value (Average Impact on Model Output Magnitude)', fontsize=12)
     plt.ylabel('Feature Cluster', fontsize=12)
     plt.legend(title='Model (Threshold)')
     plt.tight_layout()
-    plt.savefig(os.path.join(BASE_RESULTS_DIR, 'shap_summary_bar_composite_top3.png'))
+    plt.savefig(os.path.join(BASE_RESULTS_DIR, 'shap_summary_bar_composite.png'))
     plt.close()
     logging.info("  Saved composite bar chart.")
 
-    # Step 5: Log data for and create separate beeswarm plots
+    # Step 5: Create and log individual beeswarm plots
     logging.info("\n--- Generating SHAP Beeswarm Plots ---")
     for model_key, shap_values in all_shap_values.items():
         test_sample = all_test_samples[model_key]
         for i, target_class in enumerate(unique_classes):
             logging.info(f"\n--- Data for Beeswarm Plot: {model_key}, Class {target_class} ---")
 
-            # *** NEW *** Calculate and log the data for this specific plot
             class_shap_values = shap_values[:, :, i]
             mean_abs_shap_class = np.abs(class_shap_values.values).mean(axis=0)
             class_importance_df = pd.DataFrame({
@@ -270,9 +286,10 @@ def main():
             plt.close()
             logging.info(f"  Saved beeswarm plot for Class {target_class}, Model {model_key}.")
 
-    logging.info(f"\nSHAP analysis for top 3 models complete. Plots saved to '{BASE_RESULTS_DIR}/'")
+    logging.info(f"\nSHAP analysis complete. Plots saved to '{BASE_RESULTS_DIR}/'")
     logging.info(f"--- Finished Script: 7_shap.py ---")
 
 
 if __name__ == "__main__":
     main()
+
