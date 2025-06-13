@@ -1,1 +1,11 @@
-Python 3.11.11
+pandas
+numpy
+scikit-learn
+matplotlib
+seaborn
+dython
+xgboost
+lightgbm
+mord
+fpdf2
+Pillow
