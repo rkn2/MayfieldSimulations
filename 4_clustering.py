@@ -39,6 +39,11 @@ try:
     LGBM_AVAILABLE = True
 except ImportError:
     LGBM_AVAILABLE = False
+try: # Added MORD import check
+    import mord
+    MORD_AVAILABLE = True
+except ImportError:
+    MORD_AVAILABLE = False
 
 
 # --- Logging Configuration Setup ---
@@ -75,7 +80,7 @@ CLUSTERING_LINKAGE_METHOD = 'average'
 GRIDSEARCH_SCORING_METRIC = 'f1_weighted'
 PRIMARY_CV_METRIC_NAME_FOR_BEST_MODEL = f"Mean CV {GRIDSEARCH_SCORING_METRIC.replace('_', ' ').title()}"
 METRIC_FOR_FINAL_COMPARISON_PLOT = 'Test F1 Weighted'
-N_TOP_MODELS_TO_SAVE = 3 # Number of top models to pass to the next script
+N_TOP_MODELS_TO_SAVE = 3 # Number of top models to pass to the next script (This variable will now be ignored for top_models selection based on threshold)
 
 CV_SCORING_REPORT_DICT = {
     'accuracy': 'accuracy',
@@ -112,8 +117,22 @@ if LGBM_AVAILABLE:
     PARAM_GRIDS_FOR_MODELS["LightGBM"] = {'n_estimators': [100, 150], 'learning_rate': [0.05, 0.1],
                                           'num_leaves': [20, 31]}
 
+# Conditionally add ordinal models if MORD is available
+if MORD_AVAILABLE:
+    MODELS_TO_BENCHMARK.update({
+        "Ordinal Logistic (AT)": mord.LogisticAT(),
+        "Ordinal Ridge": mord.OrdinalRidge(),
+        "Ordinal LAD": mord.LAD()
+    })
+    PARAM_GRIDS_FOR_MODELS.update({
+        "Ordinal Logistic (AT)": {'alpha': [0.1, 1.0, 10.0]},
+        "Ordinal Ridge": {'alpha': [0.1, 1.0, 10.0]},
+        "Ordinal LAD": {'C': [0.1, 1.0, 10.0]}
+    })
 
-# --- Helper Functions ---
+
+PRIMARY_CV_METRIC = f"Mean CV {GRIDSEARCH_SCORING_METRIC.replace('_', ' ').title()}"
+
 def load_pickle_data(file_path, description="data"):
     logging.info(f"Loading {description} from {file_path}...")
     try:
@@ -326,7 +345,7 @@ def main():
 
     plt.figure(figsize=(14, 8))
     sns.barplot(x="Feature Set Name", y=METRIC_FOR_FINAL_COMPARISON_PLOT, data=performance_df, palette="viridis")
-    plt.title(f'{METRIC_FOR_FINAL_COMPARISON_PLOT} Comparison: Original vs. Clustered Features', fontsize=16)
+    plt.title(f'Best Model {METRIC_FOR_FINAL_COMPARISON_PLOT} Comparison: Original vs. Clustered Features', fontsize=16)
     plt.xlabel("Feature Set Configuration", fontsize=12)
     plt.ylabel(METRIC_FOR_FINAL_COMPARISON_PLOT, fontsize=12)
     plt.xticks(rotation=40, ha='right', fontsize=9)
