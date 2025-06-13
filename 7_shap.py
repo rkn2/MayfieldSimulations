@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import shap
 import logging
 import sys
+import re
 
 
 # --- Logging Configuration Setup ---
@@ -47,6 +48,19 @@ N_BACKGROUND_SAMPLES = 200
 N_TOP_FEATURES_TO_PLOT = 15
 
 
+# *** NEW ***: Helper function to ensure consistent feature naming
+def sanitize_feature_names(df):
+    """Sanitizes DataFrame column names to match model's expectations."""
+    if not isinstance(df, pd.DataFrame):
+        return df
+
+    # This regex replaces any character that is not a letter, number, or underscore with a single underscore.
+    # It's crucial for matching names from OneHotEncoder that contain spaces or special characters.
+    sanitized_cols = {col: re.sub(r'[^A-Za-z0-9_]+', '_', col) for col in df.columns}
+    df.rename(columns=sanitized_cols, inplace=True)
+    return df
+
+
 def load_data_and_model():
     """Loads all necessary data and the trained model."""
     logging.info("--- Loading Data and Model for SHAP analysis ---")
@@ -56,25 +70,38 @@ def load_data_and_model():
         sys.exit(1)
 
     try:
-        X_train = joblib.load(X_TRAIN_PATH)
-        X_test = joblib.load(X_TEST_PATH)
+        X_train_orig = joblib.load(X_TRAIN_PATH)
+        X_test_orig = joblib.load(X_TEST_PATH)
         y_test = joblib.load(Y_TEST_PATH)
         model = joblib.load(BEST_MODEL_PATH)
         preprocessor = joblib.load(PREPROCESSOR_PATH)
         logging.info("  Successfully loaded all required files.")
 
-        if not isinstance(X_train, pd.DataFrame) or not isinstance(X_test, pd.DataFrame):
+        # This block is crucial. It reconstructs DataFrames with proper feature names.
+        if not isinstance(X_train_orig, pd.DataFrame) or not isinstance(X_test_orig, pd.DataFrame):
             logging.warning(
-                "Warning: Processed data is not in a DataFrame format. Attempting to get feature names from preprocessor.")
+                "Warning: Processed data is not in a DataFrame format. Attempting to reconstruct DataFrame with feature names.")
             try:
+                # Use the preprocessor to get the raw feature names
                 feature_names = preprocessor.get_feature_names_out()
-                X_train = pd.DataFrame(X_train, columns=feature_names)
-                X_test = pd.DataFrame(X_test, columns=feature_names)
+                X_train = pd.DataFrame(X_train_orig, columns=feature_names)
+                X_test = pd.DataFrame(X_test_orig, columns=feature_names)
+                logging.info("  Successfully reconstructed DataFrames.")
             except Exception as e:
                 logging.error(
                     f"Error: Could not construct DataFrame from processed data. Feature names will be missing. Error: {e}",
                     exc_info=True)
                 sys.exit(1)
+        else:
+            # If data is already a DataFrame, ensure it has column names
+            X_train = X_train_orig.copy()
+            X_test = X_test_orig.copy()
+
+        # *** FIXED ***: Apply the same sanitization to the reconstructed DataFrames
+        logging.info("  Sanitizing feature names to match model's fit-time names...")
+        X_train = sanitize_feature_names(X_train)
+        X_test = sanitize_feature_names(X_test)
+        logging.info("  Feature names sanitized.")
 
         return X_train, X_test, y_test, model, preprocessor
     except Exception as e:
@@ -113,9 +140,9 @@ def main():
     # 3. Initialize SHAP Explainer
     logging.info("\n--- Calculating SHAP Values ---")
     try:
-        # ** FIX: Convert DataFrames to NumPy arrays to avoid feature name issues **
-        explainer = shap.Explainer(model.predict_proba, background_data.values)
-        shap_values = explainer(X_test_sample.values)
+        # No change needed here anymore because the DataFrames now have the correct names
+        explainer = shap.Explainer(model.predict_proba, background_data)
+        shap_values = explainer(X_test_sample)
         logging.info("SHAP values calculated successfully.")
 
     except Exception as e:
@@ -127,51 +154,25 @@ def main():
     class_names = [f"Class {c}" for c in unique_classes]
     logging.info(f"\nFound unique classes in test set: {unique_classes}. Analyzing all classes.")
 
-    # 4. Create and Save Composite Bar Chart
-    logging.info("\n--- Generating and Logging Composite SHAP Bar Plot Data ---")
-    mean_abs_shap_per_class = [np.abs(shap_values.values[:, :, i]).mean(0) for i in range(len(unique_classes))]
-    feature_importance_df = pd.DataFrame(
-        data=np.array(mean_abs_shap_per_class).T,
-        index=X_test_sample.columns,
-        columns=class_names
-    )
-    feature_importance_df['Total Importance'] = feature_importance_df.sum(axis=1)
-    top_features = feature_importance_df.nlargest(N_TOP_FEATURES_TO_PLOT, 'Total Importance')
-
-    # Log the data for the plot
-    logging.info(
-        f"Data for 'Top {N_TOP_FEATURES_TO_PLOT} Feature Importances by Class' plot:\n{top_features.to_string()}")
-
-    top_features.drop(columns=['Total Importance']).plot(kind='bar', figsize=(16, 9), width=0.8, stacked=False,
-                                                         colormap='viridis')
-    plt.title(f'Top {N_TOP_FEATURES_TO_PLOT} Feature Importances by Class', fontsize=16)
-    plt.ylabel('Mean Absolute SHAP Value (Impact on prediction)', fontsize=12)
-    plt.xlabel('Feature', fontsize=12)
-    plt.xticks(rotation=45, ha='right')
-    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    # 4. Create and Save Composite Bar Chart using SHAP's built-in functionality
+    logging.info("\n--- Generating Composite SHAP Bar Plot ---")
+    plt.figure()
+    shap.summary_plot(shap_values, X_test_sample, plot_type="bar", class_names=class_names,
+                      max_display=N_TOP_FEATURES_TO_PLOT, show=False)
+    plt.title(f'Top {N_TOP_FEATURES_TO_PLOT} Overall Feature Importances', fontsize=16)
     plt.tight_layout()
     plt.savefig(os.path.join(RESULTS_DIR, 'shap_summary_bar_composite.png'))
     plt.close()
     logging.info("    Saved composite bar chart to shap_summary_bar_composite.png")
 
-    # 5. Loop to generate individual Beeswarm plots and console output
+    # 5. Loop to generate individual Beeswarm plots
     for i, target_class_to_explain in enumerate(unique_classes):
         logging.info(f"\n============================================================")
         logging.info(f"  ANALYZING SHAP VALUES FOR CLASS: {target_class_to_explain}")
         logging.info(f"============================================================")
 
-        class_importance_df = pd.DataFrame({
-            'Feature': X_test_sample.columns,
-            'Mean Absolute SHAP Value': feature_importance_df[f'Class {target_class_to_explain}']
-        }).sort_values(by='Mean Absolute SHAP Value', ascending=False)
-
-        logging.info(
-            f"Top {N_TOP_FEATURES_TO_PLOT} features influencing predictions for class {target_class_to_explain}:")
-        logging.info(f"\n{class_importance_df.head(N_TOP_FEATURES_TO_PLOT).to_string(index=False)}")
-
         logging.info(f"\n  Generating SHAP Beeswarm Summary Plot for Class {target_class_to_explain}...")
         plt.figure()
-        # ** FIX: Use the original DataFrame for plotting to get correct feature names **
         shap.summary_plot(shap_values[:, :, i], X_test_sample, max_display=N_TOP_FEATURES_TO_PLOT, show=False)
         plt.title(f'SHAP Summary Plot (for class {target_class_to_explain})', fontsize=14)
         plt.tight_layout()
@@ -185,3 +186,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
