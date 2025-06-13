@@ -79,16 +79,18 @@ TEST_X_PATH = os.path.join(DATA_DIR, 'X_test_processed.pkl')
 TEST_Y_PATH = os.path.join(DATA_DIR, 'y_test.pkl')
 
 # Number of times to repeat the entire analysis on fixed splits
-N_REPEATS_ANALYSIS = 3  # You can increase this for more robust variance estimation
+# Set to 1 as requested to run once and not check for variance
+N_REPEATS_ANALYSIS = 1
 
 RANDOM_STATE = 42  # Base random state for reproducibility
 N_SPLITS_CV = 5
-CLUSTERING_THRESHOLDS_TO_TEST = [None, 0.8, 0.9]  # Test thresholds
+CLUSTERING_THRESHOLDS_TO_TEST = [None, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]  # Test thresholds
 CLUSTERING_LINKAGE_METHOD = 'average'
 GRIDSEARCH_SCORING_METRIC = 'f1_weighted'
 PRIMARY_CV_METRIC_NAME_FOR_BEST_MODEL = f"Mean CV {GRIDSEARCH_SCORING_METRIC.replace('_', ' ').title()}"
 METRIC_FOR_FINAL_COMPARISON_PLOT = 'Test F1 Weighted'
-N_TOP_MODELS_TO_SAVE = 3
+# Removed N_TOP_MODELS_TO_SAVE as we will now save all models
+
 
 CV_SCORING_REPORT_DICT = {
     'accuracy': 'accuracy',
@@ -255,19 +257,18 @@ def get_selected_features_by_clustering(original_df, distance_thresh, linkage_me
     return sorted(list(set(selected_representatives_list)))
 
 
-def run_benchmarking_for_feature_set(x_train_fs, y_train_fs, x_test_fs, y_test_fs, feature_set_label, threshold_value,
-                                     run_number):
-    logging.info(f"\n--- Benchmarking for: {feature_set_label} (Run {run_number}) ---")
+def run_benchmarking_for_feature_set(x_train_fs, y_train_fs, x_test_fs, y_test_fs, feature_set_label, threshold_value):
+    logging.info(f"\n--- Benchmarking for: {feature_set_label} ---")
 
     all_models_results_for_feature_set = []
-    # Use fixed RANDOM_STATE for CV splits, as requested
+    # Use fixed RANDOM_STATE for CV splits
     kf_cv = KFold(n_splits=N_SPLITS_CV, shuffle=True, random_state=RANDOM_STATE)
 
     for model_name, model_template_base in MODELS_TO_BENCHMARK.items():
         logging.info(f"    Tuning model: {model_name}...")
         param_grid_fs = PARAM_GRIDS_FOR_MODELS.get(model_name, {})
 
-        # Set fixed RANDOM_STATE for stochastic models during instantiation, as requested
+        # Set fixed RANDOM_STATE for stochastic models during instantiation
         model_template_fs = model_template_base
         if hasattr(model_template_fs, 'random_state'):
             # Create a new instance with fixed random_state to ensure consistency across runs
@@ -280,9 +281,9 @@ def run_benchmarking_for_feature_set(x_train_fs, y_train_fs, x_test_fs, y_test_f
             estimator=model_template_fs, param_grid=param_grid_fs, scoring=GRIDSEARCH_SCORING_METRIC,
             cv=kf_cv, n_jobs=-1, verbose=0, error_score='raise'
         )
+        # Removed 'Run Number' from here since N_REPEATS_ANALYSIS is 1
         current_model_result_row = {"Model": model_name, "Feature Set Name": feature_set_label,
-                                    "Number of Features": x_train_fs.shape[1], "Threshold Value": threshold_value,
-                                    "Run Number": run_number}
+                                    "Number of Features": x_train_fs.shape[1], "Threshold Value": threshold_value}
         try:
             grid_search_fs.fit(x_train_fs, y_train_fs)
             best_estimator_fs = grid_search_fs.best_estimator_
@@ -353,7 +354,8 @@ def main():
     y_train_ravel = y_train_orig.ravel()
     y_test_ravel = y_test_orig.ravel()
 
-    all_runs_combined_df = pd.DataFrame()  # This will store results from all runs
+    # This will now contain results from a single run
+    all_performance_results_df = pd.DataFrame()
 
     # Pre-calculate association matrix and linkage matrix for the fixed data
     precomputed_association_matrix = calculate_association_df(X_train_sanitized)
@@ -376,8 +378,9 @@ def main():
                 f"  Error creating condensed distance matrix or linkage: {e}. Skipping clustering precomputation.",
                 exc_info=True)
 
+    # The loop runs only once (N_REPEATS_ANALYSIS = 1) as requested.
     for run_idx in range(N_REPEATS_ANALYSIS):
-        logging.info(f"\n===== Starting Repetition Run {run_idx + 1}/{N_REPEATS_ANALYSIS} =====")
+        logging.info(f"\n===== Starting Analysis Run {run_idx + 1} =====")
 
         current_run_all_performance_results_df = pd.DataFrame()  # Accumulate results for this run
 
@@ -404,91 +407,82 @@ def main():
 
             feature_set_label = f"{feature_set_label_base} ({num_features} feats)"
 
-            # Call the benchmarking function, passing the run_idx
+            # Call the benchmarking function (run_number is implicitly 1 for single run)
             results_for_current_feature_set = run_benchmarking_for_feature_set(
-                current_X_train_fs, y_train_ravel, current_X_test_fs, y_test_ravel, feature_set_label, threshold,
-                run_idx + 1
+                current_X_train_fs, y_train_ravel, current_X_test_fs, y_test_ravel, feature_set_label, threshold
             )
 
             if not results_for_current_feature_set.empty:
                 current_run_all_performance_results_df = pd.concat(
                     [current_run_all_performance_results_df, results_for_current_feature_set], ignore_index=True)
 
-        # Append results of the current run to the overall list
-        if not current_run_all_performance_results_df.empty:
-            all_runs_combined_df = pd.concat([all_runs_combined_df, current_run_all_performance_results_df],
-                                             ignore_index=True)
+        # In a single run, all_performance_results_df is just current_run_all_performance_results_df
+        if all_performance_results_df.empty:  # Only assign if empty, otherwise it's already set
+            all_performance_results_df = current_run_all_performance_results_df
+        else:  # For safety if loop runs more than once by accident or user changes N_REPEATS_ANALYSIS
+            all_performance_results_df = pd.concat([all_performance_results_df, current_run_all_performance_results_df],
+                                                   ignore_index=True)
 
-    logging.info("\n\n===== Overall Performance Summary (All Runs, Models, and Feature Sets) =====")
-    # The all_runs_combined_df now contains results from all repetitions.
-    # The plot will automatically compute means and standard deviations from this data.
+    logging.info("\n\n===== Overall Performance Summary (Single Run) =====")
+    # The dataframe now contains results from a single execution.
+    # No 'mean' or 'std' aggregation is needed for this display as there's only one value per item.
 
-    # You might still want a summary table of means/stds for logging
-    summary_for_logging_df = all_runs_combined_df.groupby(['Model', 'Feature Set Name', 'Threshold Value'])[
-        METRIC_FOR_FINAL_COMPARISON_PLOT].agg(['mean', 'std']).reset_index()
-    summary_for_logging_df.rename(columns={'mean': METRIC_FOR_FINAL_COMPARISON_PLOT + ' (Mean)',
-                                           'std': METRIC_FOR_FINAL_COMPARISON_PLOT + ' (Std)'}, inplace=True)
+    logging.info(f"\n{all_performance_results_df.to_string(index=False)}")
 
-    logging.info(f"\n{summary_for_logging_df.to_string(index=False)}")
-
-    # Find and save the best threshold (based on overall mean performance of the best model across runs)
-    # This logic now uses the summary_for_logging_df which has means.
-    best_model_per_feature_set_mean = summary_for_logging_df.loc[
-        summary_for_logging_df.groupby('Feature Set Name')[METRIC_FOR_FINAL_COMPARISON_PLOT + ' (Mean)'].idxmax()]
+    # Find and save the best threshold (based on single run performance)
+    best_model_per_feature_set = all_performance_results_df.loc[
+        all_performance_results_df.groupby('Feature Set Name')[METRIC_FOR_FINAL_COMPARISON_PLOT].idxmax()]
     best_threshold_row_overall = \
-    best_model_per_feature_set_mean.sort_values(by=METRIC_FOR_FINAL_COMPARISON_PLOT + ' (Mean)', ascending=False).iloc[
-        0]
+    best_model_per_feature_set.sort_values(by=METRIC_FOR_FINAL_COMPARISON_PLOT, ascending=False).iloc[0]
     best_threshold_overall = best_threshold_row_overall['Threshold Value']
     logging.info(
-        f"\nOverall best performing threshold (based on mean {METRIC_FOR_FINAL_COMPARISON_PLOT}): {best_threshold_overall}")
+        f"\nOverall best performing threshold (based on {METRIC_FOR_FINAL_COMPARISON_PLOT}): {best_threshold_overall}")
     with open(BEST_THRESHOLD_FILE, 'w') as f:
         json.dump({'best_threshold': best_threshold_overall}, f)
     logging.info(f"Best threshold saved to: {BEST_THRESHOLD_FILE}")
 
-    # Identify and save the top N models (overall best performing models across all feature sets, based on mean)
-    top_models_overall_mean = \
-    summary_for_logging_df.sort_values(by=METRIC_FOR_FINAL_COMPARISON_PLOT + ' (Mean)', ascending=False)[
-        'Model'].unique()[:N_TOP_MODELS_TO_SAVE]
-    logging.info(
-        f"Top {N_TOP_MODELS_TO_SAVE} models to be passed to next script (overall mean): {top_models_overall_mean}")
+    # Identify and save the top N models (overall best performing models based on single run)
+    # Changed to save all models, not just top N
+    top_models_overall = all_performance_results_df.sort_values(by=METRIC_FOR_FINAL_COMPARISON_PLOT, ascending=False)[
+        'Model'].unique()
+    logging.info(f"All models identified (overall): {top_models_overall}")
     with open(TOP_MODELS_FILE, 'w') as f:
-        json.dump({'top_models': list(top_models_overall_mean)}, f)
-    logging.info(f"Top models saved to: {TOP_MODELS_FILE}")
+        json.dump({'top_models': list(top_models_overall)}, f)
+    logging.info(f"All models saved to: {TOP_MODELS_FILE}")
 
-    # --- Plotting All Models vs. Clustering Cases with Error Bars ---
+    # --- Plotting All Models vs. Clustering Cases (No Error Bars) ---
     plt.figure(figsize=(20, 12))  # Adjust figure size for better readability
 
     # Define order for x-axis to ensure consistency (use unique Feature Set Names from the combined data)
-    x_order = all_runs_combined_df['Feature Set Name'].unique().tolist()
+    x_order = all_performance_results_df['Feature Set Name'].unique().tolist()
 
     sns.barplot(
         x="Feature Set Name",
-        y=METRIC_FOR_FINAL_COMPARISON_PLOT,  # Use the raw metric column name for automatic mean/std plotting
+        y=METRIC_FOR_FINAL_COMPARISON_PLOT,  # Use the raw metric column name
         hue="Model",
-        data=all_runs_combined_df,  # Use the full combined data frame for automatic error bars
+        data=all_performance_results_df,  # Data from single run
         palette="viridis",
-        errorbar="sd",  # Show standard deviation as error bars
+        # Removed errorbar="sd" as requested to not show variance
         order=x_order
     )
-    plt.title(
-        f'Model {METRIC_FOR_FINAL_COMPARISON_PLOT} Comparison Across All Clustering Cases (Mean & Std Dev over {N_REPEATS_ANALYSIS} runs)',
-        fontsize=16)
+    plt.title(f'Model {METRIC_FOR_FINAL_COMPARISON_PLOT} Comparison Across All Clustering Cases (Single Run)',
+              fontsize=16)
     plt.xlabel("Feature Set Configuration", fontsize=12)
-    plt.ylabel(f"{METRIC_FOR_FINAL_COMPARISON_PLOT} (Mean)", fontsize=12)
+    plt.ylabel(METRIC_FOR_FINAL_COMPARISON_PLOT, fontsize=12)
     plt.xticks(rotation=45, ha='right', fontsize=9)  # Rotate labels for better fit
     plt.legend(title='Model', bbox_to_anchor=(1.01, 1), loc='upper left')  # Move legend outside
     plt.tight_layout(rect=[0, 0, 0.85, 1])  # Adjust layout to make space for the legend
 
     chart_save_path = os.path.join(BASE_RESULTS_DIR,
-                                   f"all_models_clustering_{METRIC_FOR_FINAL_COMPARISON_PLOT.replace(' ', '_').lower()}_repeated_comparison.png")
+                                   f"all_models_clustering_{METRIC_FOR_FINAL_COMPARISON_PLOT.replace(' ', '_').lower()}_single_run_comparison.png")
     plt.savefig(chart_save_path)
-    logging.info(f"\nComparison bar chart with error bars saved to: {chart_save_path}")
+    logging.info(f"\nComparison bar chart saved to: {chart_save_path}")
     plt.show()
 
     detailed_results_path = os.path.join(BASE_RESULTS_DIR,
-                                         "clustering_performance_detailed_results_all_models_repeated.csv")
-    all_runs_combined_df.to_csv(detailed_results_path, index=False, float_format='%.6f')
-    logging.info(f"Detailed performance results for all models and runs saved to: {detailed_results_path}")
+                                         "clustering_performance_detailed_results_all_models_single_run.csv")
+    all_performance_results_df.to_csv(detailed_results_path, index=False, float_format='%.6f')
+    logging.info(f"Detailed performance results for all models and single run saved to: {detailed_results_path}")
 
 
 if __name__ == '__main__':
