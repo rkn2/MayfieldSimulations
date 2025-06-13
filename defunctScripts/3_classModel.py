@@ -60,7 +60,7 @@ setup_logging()
 
 # --- Configuration ---
 MODEL_TYPE_TO_RUN = 'both'
-DATA_DIR = 'processed_ml_data'
+DATA_DIR = '../processed_ml_data'
 CV_RESULTS_FILENAME = 'model_tuned_cv_results.csv'
 CV_CHART_FILENAME = 'model_cv_comparison_chart.png'
 TEST_RESULTS_FILENAME = 'model_test_set_results.csv'

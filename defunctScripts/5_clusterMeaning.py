@@ -33,9 +33,9 @@ def setup_logging(log_file='pipeline.log'):
 setup_logging()
 
 # --- Configuration ---
-DATA_DIR = 'processed_ml_data'
-BASE_RESULTS_DIR = 'cluster_exploration_results'
-BEST_THRESHOLD_FILE = os.path.join('clustering_performance_results', 'best_threshold.json')
+DATA_DIR = '../processed_ml_data'
+BASE_RESULTS_DIR = '../cluster_exploration_results'
+BEST_THRESHOLD_FILE = os.path.join('../clustering_performance_results', 'best_threshold.json')
 
 # Input data paths
 TRAIN_X_PATH = os.path.join(DATA_DIR, 'X_train_processed.pkl')

@@ -7,9 +7,9 @@ LOG_FILE = 'pipeline.log'
 SCRIPTS_TO_RUN = [
     '1_dataCleaning.py',
     '2_dataPreprocessing.py',
-    '3_classModel.py',
+    #'3_classModel.py',
     '4_clustering.py',
-    '5_clusterMeaning.py',
+    #'5_clusterMeaning.py',
     '6_deltaAccuracy.py',
     '7_shap.py'
 ]
