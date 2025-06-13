@@ -61,7 +61,7 @@ BASE_RESULTS_DIR = 'cluster_importance_results_final'
 TRAIN_X_PATH = os.path.join(DATA_DIR, 'X_train_processed.pkl')
 TRAIN_Y_PATH = os.path.join(DATA_DIR, 'y_train.pkl')
 TEST_X_PATH = os.path.join(DATA_DIR, 'X_test_processed.pkl')
-TEST_Y_PATH = os.path.join(DATA_DIR, 'y_test.pkl')
+TEST_Y_PATH = os.path.join(DATA_DIR, 'y_test.pkl') # Correctly defined here
 DETAILED_PERFORMANCE_CSV = os.path.join(RESULTS_DIR_4,
                                         'clustering_performance_detailed_results_all_models_single_run.csv')
 
@@ -144,7 +144,6 @@ def main():
         f"Identifying combinations with Test F1 Weighted > {PERFORMANCE_THRESHOLD} from '{DETAILED_PERFORMANCE_CSV}'...")
     try:
         performance_df = pd.read_csv(DETAILED_PERFORMANCE_CSV)
-        # ***MODIFIED***: Filter for combinations with a score greater than the threshold
         high_performing_combinations = performance_df[
             performance_df['Test F1 Weighted'] > PERFORMANCE_THRESHOLD].sort_values(by='Test F1 Weighted',
                                                                                     ascending=False)
@@ -178,7 +177,8 @@ def main():
     X_train_orig = load_data(TRAIN_X_PATH, "original X_train")
     y_train = load_data(TRAIN_Y_PATH, "original y_train")
     X_test_orig = load_data(TEST_X_PATH, "original X_test")
-    y_test = load_data(Y_TEST_PATH, "original y_test")
+    # *** FIXED ***: Corrected the variable name typo from Y_TEST_PATH to TEST_Y_PATH
+    y_test = load_data(TEST_Y_PATH, "original y_test")
 
     X_train_sanitized = sanitize_feature_names_df(pd.DataFrame(X_train_orig))
     X_test_sanitized = sanitize_feature_names_df(pd.DataFrame(X_test_orig)).reindex(columns=X_train_sanitized.columns,
@@ -262,7 +262,6 @@ def main():
         max_importance_order = significant_df.groupby('Cluster Label')['Importance (Mean Drop)'].max().sort_values(
             ascending=False).index
 
-        # *** NEW *** Log the data that will be used for the plot
         logging.info(f"\n--- Data for Final Permutation Importance Bar Chart ---")
         plot_df_to_log = significant_df[significant_df['Cluster Label'].isin(max_importance_order)].copy()
         plot_df_to_log['Cluster Label'] = pd.Categorical(plot_df_to_log['Cluster Label'], categories=max_importance_order, ordered=True)
