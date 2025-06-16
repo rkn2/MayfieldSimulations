@@ -74,10 +74,11 @@ DETAILED_PERFORMANCE_CSV = os.path.join(RESULTS_DIR_4,
 # --- Analysis Settings ---
 CLUSTERING_LINKAGE_METHOD = 'average'
 SCORING_METRIC_FOR_IMPORTANCE = 'f1_weighted'
-PERFORMANCE_THRESHOLD = 0.8
+PERFORMANCE_THRESHOLD = 0.85
 P_VALUE_THRESHOLD = 0.05
 RANDOM_STATE = 42
-N_PERMUTATION_REPEATS = 200
+N_PERMUTATION_REPEATS = 100
+
 
 
 # --- Helper Functions ---
@@ -174,12 +175,13 @@ def main():
         "Gradient Boosting": GradientBoostingClassifier(random_state=RANDOM_STATE),
         "XGBoost": xgb.XGBClassifier(random_state=RANDOM_STATE, eval_metric='mlogloss') if XGB_AVAILABLE else None,
         "Hist Gradient Boosting": HistGradientBoostingClassifier(random_state=RANDOM_STATE),
-        "KNN": KNeighborsClassifier(),
-        "Logistic Regression": LogisticRegression(random_state=RANDOM_STATE, max_iter=2000),
+        #"KNN": KNeighborsClassifier(), # overly sensitive to parameter of inputs and i have too many inputs
+        "Logistic Regression": LogisticRegression(random_state=RANDOM_STATE, max_iter=2000, solver='liblinear'),
         "Random Forest": RandomForestClassifier(random_state=RANDOM_STATE),
         "Decision Tree": DecisionTreeClassifier(random_state=RANDOM_STATE),
         "Ordinal LAD": mord.LAD() if MORD_AVAILABLE else None,
-        "Ordinal Ridge": mord.OrdinalRidge() if MORD_AVAILABLE else None
+        "Ordinal Ridge": mord.OrdinalRidge() if MORD_AVAILABLE else None,
+        "Ordinal Logistic (AT)": mord.LogisticAT() if MORD_AVAILABLE else None,
     }
 
     X_train_orig = load_data(TRAIN_X_PATH, "original X_train")
@@ -196,12 +198,12 @@ def main():
     # Step 3: Loop through each top combination and run analysis
     all_model_importances = []
 
-    for index, combo_row in high_performing_combinations.iterrows():
+    for rank, (index, combo_row) in enumerate(high_performing_combinations.iterrows(), 1):
         model_name = combo_row['Model']
         threshold = combo_row['Threshold Value']
         params_str = combo_row['Best Params']
 
-        logging.info(f"\n===== Analyzing Combination {index + 1}/{len(high_performing_combinations)} =====")
+        logging.info(f"\n===== Analyzing Combination {rank}/{len(high_performing_combinations)} =====")
         logging.info(f"Model: {model_name}, Threshold: {threshold}")
 
         selected_features = get_selected_features_by_clustering(X_train_sanitized, threshold, CLUSTERING_LINKAGE_METHOD)
