@@ -2,6 +2,12 @@
 
 This repository implements a data analysis pipeline to process, analyze, and report on tornado damage data. Each script in the pipeline serves a specific purpose, handling data from initial cleaning to advanced model interpretability and report generation.
 
+### notes on things to add
+rfe should be run early in the process so i can figure out how many feature to cut it at
+i decided not to cluster here based on some analysis of the outputs and thinking about RFE first this will vary
+
+coefficient interp looks at the best model from 4. 
+
 ### Pipeline Details
 
 The pipeline consists of the following scripts, executed sequentially by `main.py`:

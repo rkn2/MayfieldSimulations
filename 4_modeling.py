@@ -76,6 +76,7 @@ N_SPLITS_CV = 5
 CLUSTERING_THRESHOLDS_TO_TEST = [None]
 CLUSTERING_LINKAGE_METHOD = 'average'
 GRIDSEARCH_SCORING_METRIC = 'f1_weighted'
+PERFORMANCE_THRESHOLD_FOR_PLOT = 0.8
 
 METRICS_TO_EVALUATE = {
     'accuracy': 'accuracy', 'f1_weighted': 'f1_weighted', 'f1_macro': 'f1_macro',
@@ -89,29 +90,32 @@ MODELS_TO_BENCHMARK = {
     "Random Forest": RandomForestClassifier(random_state=RANDOM_STATE, n_jobs=-1),
     "Gradient Boosting": GradientBoostingClassifier(random_state=RANDOM_STATE),
     "Hist Gradient Boosting": HistGradientBoostingClassifier(random_state=RANDOM_STATE),
-    "KNN": KNeighborsClassifier()
+    #"KNN": KNeighborsClassifier()
 }
 if XGB_AVAILABLE: MODELS_TO_BENCHMARK["XGBoost"] = xgb.XGBClassifier(random_state=RANDOM_STATE, eval_metric='mlogloss')
 if LGBM_AVAILABLE: MODELS_TO_BENCHMARK["LightGBM"] = lgb.LGBMClassifier(random_state=RANDOM_STATE, verbosity=-1)
 if MORD_AVAILABLE:
     MODELS_TO_BENCHMARK.update({
-        "Ordinal Logistic (AT)": mord.LogisticAT(), "Ordinal Ridge": mord.OrdinalRidge(), "Ordinal LAD": mord.LAD()
+        "Ordinal Logistic (AT)": mord.LogisticAT(),
+        "Ordinal Ridge": mord.OrdinalRidge(),
+        "Ordinal LAD": mord.LAD()
     })
 
 PARAM_GRIDS = {
-    "Logistic Regression": {'penalty': ['l1', 'l2'], 'C': [0.01, 0.1, 1.0]},
-    "Decision Tree": {'criterion': ['gini', 'entropy'], 'max_depth': [4, 6, 8, 10], 'min_samples_leaf': [5, 10, 15]},
-    "Random Forest": {'n_estimators': [32, 64], 'max_depth': [3, 4, 5], 'min_samples_leaf': [5, 10]},
-    "Gradient Boosting": {'n_estimators': [64], 'learning_rate': [0.05, 0.1], 'max_depth': [3, 4, 5]},
+    "Logistic Regression": {'penalty': ['l1', 'l2'], 'C': [0.1, 1.0, 10.0]},
+    "Decision Tree": {'criterion': ['gini', 'entropy'], 'max_depth': [4, 6, 8], 'min_samples_leaf': [ 10, 15]},
+    "Random Forest": {'n_estimators': [100, 150], 'max_depth': [6, 8], 'min_samples_leaf': [5, 10]},
+    "Gradient Boosting": {'n_estimators': [100], 'learning_rate': [0.05, 0.1], 'max_depth': [3, 4, 5]},
     "Hist Gradient Boosting": {'learning_rate': [0.05, 0.1], 'max_leaf_nodes': [20, 31]},
-    #"KNN": {'n_neighbors': [5, 7, 9], 'weights': ['uniform', 'distance']} # overly sensitive to parameter of inputs and i have too many inputs
+    "KNN": {'n_neighbors': [5, 7, 9], 'weights': ['uniform', 'distance']}
 }
 if XGB_AVAILABLE: PARAM_GRIDS["XGBoost"] = {'n_estimators': [100], 'learning_rate': [0.05, 0.1], 'max_depth': [3, 4, 5]}
 if LGBM_AVAILABLE: PARAM_GRIDS["LightGBM"] = {'n_estimators': [100], 'learning_rate': [0.05, 0.1],
                                               'num_leaves': [15, 25]}
 if MORD_AVAILABLE:
     PARAM_GRIDS.update({
-        "Ordinal Logistic (AT)": {'alpha': [0.1, 1.0, 10.0]}, "Ordinal Ridge": {'alpha': [0.1, 1.0, 10.0]},
+        "Ordinal Logistic (AT)": {'alpha': [0.1, 1.0, 10.0]},
+        "Ordinal Ridge": {'alpha': [0.1, 1.0, 10.0]},
         "Ordinal LAD": {'C': [0.1, 1.0, 10.0]}
     })
 
@@ -132,8 +136,6 @@ def sanitize_feature_names(df):
     """Sanitizes DataFrame column names to match model's expectations."""
     if not isinstance(df, pd.DataFrame):
         return df
-
-    # This regex replaces any character that is not a letter, number, or underscore with a single underscore.
     new_cols = [re.sub(r'[^A-Za-z0-9_]+', '_', str(col)) for col in df.columns]
     df.columns = new_cols
     return df
@@ -164,6 +166,60 @@ def get_selected_features_by_clustering(original_df, distance_thresh, linkage_me
     return sorted(list(set(selected_representatives_list)))
 
 
+def plot_top_performing_models(results_csv_path, output_dir, performance_threshold):
+    """
+    Loads the final results and creates a bar chart for models
+    with a Test F1 Weighted score above a given threshold.
+    """
+    logging.info(f"\n--- Generating Visualization for Top Performing Models (F1 > {performance_threshold}) ---")
+    try:
+        df = pd.read_csv(results_csv_path)
+    except FileNotFoundError:
+        logging.error(f"Results file not found at {results_csv_path}. Cannot generate top performers plot.")
+        return
+
+    # Filter for top performers
+    top_performers_df = df[df['Test F1 Weighted'] > performance_threshold].copy()
+
+    if top_performers_df.empty:
+        logging.warning(f"No models found with Test F1 Weighted > {performance_threshold}. Skipping plot.")
+        return
+
+    # Create a more readable label for the plot's x-axis
+    top_performers_df['Model Combination'] = top_performers_df['Model'] + ' (' + top_performers_df[
+        'Feature Set Name'] + ')'
+
+    # Sort by performance for a cleaner plot
+    top_performers_df = top_performers_df.sort_values(by='Test F1 Weighted', ascending=False)
+
+    logging.info(f"Found {len(top_performers_df)} model combinations with F1 > {performance_threshold} to plot.")
+    logging.info(
+        f"\nTop performers data for plot:\n{top_performers_df[['Model Combination', 'Test F1 Weighted']].to_string()}")
+
+    plt.figure(figsize=(14, 9))
+    sns.barplot(x='Test F1 Weighted', y='Model Combination', data=top_performers_df, palette='magma')
+
+    plt.title(f'Top Performing Model Combinations (Test F1 Weighted > {performance_threshold})', fontsize=16, pad=20)
+    plt.xlabel('Test F1 Weighted Score', fontsize=12)
+    plt.ylabel('Model (Feature Set)', fontsize=12)
+    # Set x-axis limit to start just below the threshold for better visibility
+    plt.xlim(performance_threshold, max(1.0, top_performers_df['Test F1 Weighted'].max() * 1.05))
+    plt.grid(axis='x', linestyle='--', alpha=0.7)
+    plt.tight_layout()
+
+    # Save the plot
+    plot_filename = 'top_performers_f1_score_barchart.png'
+    save_path = os.path.join(output_dir, plot_filename)
+    try:
+        plt.savefig(save_path, bbox_inches='tight')
+        logging.info(f"Top performers plot saved to {save_path}")
+    except Exception as e:
+        logging.error(f"Failed to save top performers plot. Error: {e}")
+
+    plt.show()
+    plt.close()
+
+
 # --- Main Orchestration ---
 def main():
     logging.info(f"--- Starting Script: 4_Clustering_and_Evaluation ---")
@@ -175,7 +231,6 @@ def main():
     X_test_orig = load_data(TEST_X_PATH, "original X_test")
     y_test = load_data(Y_TEST_PATH, "original y_test")
 
-    # *** FIXED ***: Sanitize feature names right after loading
     X_train_df = sanitize_feature_names(pd.DataFrame(X_train_orig))
     X_test_df = sanitize_feature_names(pd.DataFrame(X_test_orig))
 
@@ -191,7 +246,7 @@ def main():
 
         selected_features = get_selected_features_by_clustering(X_train_df, threshold, CLUSTERING_LINKAGE_METHOD)
         X_train_fs = X_train_df[selected_features]
-        X_test_fs = X_test_df[selected_features]
+        X_test_fs = X_test_df.reindex(columns=X_train_fs.columns, fill_value=0)  # Ensure test columns match
 
         logging.info(f"  Number of features: {len(selected_features)}")
 
@@ -242,11 +297,9 @@ def main():
                 all_results.append(result_row)
             except Exception as e:
                 logging.error(f"    ERROR running {model_name} for {feature_set_label}: {e}")
-                continue  # Skip to the next model if one fails
+                continue
 
-    # --- Step 4: Consolidate, Log, and Save All Results ---
     all_results_df = pd.DataFrame(all_results)
-
     logging.info("\n\n===== COMPREHENSIVE PERFORMANCE SUMMARY (ALL MODELS & FEATURE SETS) =====")
     with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 200):
         logging.info(f"\n{all_results_df.to_string()}")
@@ -254,7 +307,15 @@ def main():
     all_results_df.to_csv(DETAILED_RESULTS_CSV, index=False, float_format='%.6f')
     logging.info(f"\nComprehensive performance results saved to: {DETAILED_RESULTS_CSV}")
 
-    # --- Step 5: Identify and Generate Detailed Reports for Top 5 Models ---
+    # <<< --- ADDED THIS SECTION TO SAVE THE TRAINED MODELS --- >>>
+    BEST_ESTIMATORS_PATH = os.path.join(BASE_RESULTS_DIR, 'best_estimators_per_combo.pkl')
+    try:
+        joblib.dump(best_estimators_per_combo, BEST_ESTIMATORS_PATH)
+        logging.info(f"Saved dictionary of best estimators to: {BEST_ESTIMATORS_PATH}")
+    except Exception as e:
+        logging.error(f"Failed to save best estimators dictionary. Error: {e}")
+    # <<< --- END OF ADDED SECTION --- >>>
+
     top_5_combinations = all_results_df.sort_values(by='Test F1 Weighted', ascending=False).head(5)
     logging.info("\n\n===== TOP 5 PERFORMING MODEL COMBINATIONS OVERALL =====")
     logging.info(f"\n{top_5_combinations[['Model', 'Feature Set Name', 'Test F1 Weighted']].to_string()}")
@@ -269,13 +330,12 @@ def main():
 
         selected_features = get_selected_features_by_clustering(X_train_df, row['Threshold Value'],
                                                                 CLUSTERING_LINKAGE_METHOD)
-        X_test_fs = X_test_df[selected_features]
+        X_test_fs = X_test_df.reindex(columns=selected_features, fill_value=0)  # Use reindex for safety
 
         y_pred = estimator.predict(X_test_fs)
 
         logging.info(f"\n--- Detailed Report for: {combo_key} ---")
         logging.info(f"Classification Report:\n{classification_report(y_test_ravel, y_pred, zero_division=0)}")
-
         cm = confusion_matrix(y_test_ravel, y_pred)
         logging.info(f"Confusion Matrix:\n{cm}")
 
@@ -291,6 +351,8 @@ def main():
             logging.info(f"  Confusion matrix plot saved to: {os.path.join(BASE_RESULTS_DIR, cm_filename)}")
         except Exception as e:
             logging.error(f"  Could not plot confusion matrix for {combo_key}. Error: {e}")
+
+    plot_top_performing_models(DETAILED_RESULTS_CSV, BASE_RESULTS_DIR, PERFORMANCE_THRESHOLD_FOR_PLOT)
 
     logging.info("\n--- Script Finished ---")
 

@@ -7,7 +7,7 @@ LOG_FILE = 'pipeline.log'
 SCRIPTS_TO_RUN = [
     '1_dataCleaning.py',
     '2_dataPreprocessing.py',
-    '4_clustering.py',
+    '4_modeling.py',
     '6_deltaAccuracy.py',
     '7_shap.py',
     '8_generate_report.py' # Added the new script

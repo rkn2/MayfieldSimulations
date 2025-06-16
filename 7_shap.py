@@ -10,6 +10,9 @@ import sys
 import re
 import ast
 import seaborn as sns
+import shutil
+from scipy.stats import pearsonr
+from matplotlib.colors import ListedColormap
 
 # --- Clustering & Association ---
 from dython.nominal import associations
@@ -149,13 +152,11 @@ def plot_feature_correlation_heatmap(df, top_features, output_dir):
     """
     logging.info("\n--- Generating Top Feature Correlation Heatmap ---")
 
-    # Select only the top features from the dataframe
     top_features_df = df[top_features]
 
     logging.info(f"Calculating associations for {len(top_features)} top features...")
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        # Using dython's associations to handle mixed data types (numeric/categorical)
         assoc_results = associations(top_features_df, nom_nom_assoc='cramer', compute_only=True, mark_columns=False)
 
     correlation_matrix = assoc_results['corr'].fillna(0)
@@ -173,7 +174,6 @@ def plot_feature_correlation_heatmap(df, top_features, output_dir):
     plt.yticks(rotation=0)
     plt.tight_layout()
 
-    # Save the plot
     heatmap_filename = "top_features_correlation_heatmap.png"
     save_path = os.path.join(output_dir, heatmap_filename)
     try:
@@ -184,6 +184,165 @@ def plot_feature_correlation_heatmap(df, top_features, output_dir):
 
     plt.show()
     plt.close()
+
+
+def plot_faceted_shap_summary(all_shap_values, all_test_samples, top_features, unique_classes, output_dir):
+    """
+    Creates a single figure with faceted beeswarm plots for each model and class.
+    This version saves individual plots temporarily to ensure compatibility with all `shap` versions.
+    """
+    logging.info("\n--- Generating Faceted SHAP Beeswarm Plot for Consolidated Analysis ---")
+
+    temp_plot_dir = os.path.join(output_dir, "temp_shap_plots")
+    os.makedirs(temp_plot_dir, exist_ok=True)
+    plot_paths = {}
+
+    for model_key, shap_values in all_shap_values.items():
+        plot_paths[model_key] = {}
+        test_sample = all_test_samples[model_key]
+        for class_idx, target_class in enumerate(unique_classes):
+            plt.figure()
+            shap.summary_plot(
+                shap_values[:, :, class_idx],
+                test_sample,
+                max_display=len(top_features),
+                show=False
+            )
+            temp_filename = f"temp_{model_key}_class_{target_class}.png"
+            temp_filepath = os.path.join(temp_plot_dir, temp_filename)
+            plt.savefig(temp_filepath, bbox_inches='tight')
+            plt.close()
+            plot_paths[model_key][target_class] = temp_filepath
+
+    n_models = len(all_shap_values)
+    n_classes = len(unique_classes)
+
+    fig, axes = plt.subplots(n_models, n_classes, figsize=(n_classes * 8, n_models * 7), squeeze=False)
+
+    for model_idx, model_key in enumerate(all_shap_values.keys()):
+        for class_idx, target_class in enumerate(unique_classes):
+            ax = axes[model_idx, class_idx]
+            filepath = plot_paths[model_key].get(target_class)
+
+            if filepath and os.path.exists(filepath):
+                img = plt.imread(filepath)
+                ax.imshow(img)
+                ax.axis('off')
+                ax.set_title(f"Model: {model_key}\nClass: {target_class}", fontsize=12)
+            else:
+                ax.text(0.5, 0.5, 'Plot not generated', ha='center', va='center')
+                ax.axis('off')
+
+    fig.suptitle("Faceted SHAP Summary: Feature Impact by Model and Damage Class", fontsize=20, y=1.03)
+    plt.tight_layout(pad=3.0)
+
+    faceted_plot_filename = "faceted_shap_summary.png"
+    save_path = os.path.join(output_dir, faceted_plot_filename)
+    try:
+        plt.savefig(save_path, bbox_inches='tight')
+        logging.info(f"Faceted SHAP summary plot saved to {save_path}")
+    except Exception as e:
+        logging.error(f"Failed to save faceted SHAP plot. Error: {e}")
+
+    plt.show()
+    plt.close(fig)
+
+    try:
+        shutil.rmtree(temp_plot_dir)
+        logging.info(f"Successfully removed temporary plot directory: {temp_plot_dir}")
+    except Exception as e:
+        logging.error(f"Could not remove temporary plot directory: {temp_plot_dir}. Error: {e}")
+
+
+# <<< --- START: REVISED SYNTHESIS HEATMAP FUNCTION --- >>>
+def generate_feature_synthesis_report(all_shap_values, all_test_samples, top_features, unique_classes, output_dir):
+    """
+    Generates heatmaps synthesizing the impact of each top feature across all models.
+    The color represents the direction of impact, and the annotation is the mean absolute SHAP value.
+    """
+    logging.info("\n\n" + "=" * 80)
+    logging.info("--- Generating Feature Impact Synthesis Heatmaps ---")
+    logging.info("=" * 80)
+
+    # Prepare data for all classes first
+    directional_data = {}
+    magnitude_data = {}
+
+    for model_key, test_sample in all_test_samples.items():
+        directional_data[model_key] = {}
+        magnitude_data[model_key] = {}
+        shap_values_for_model = all_shap_values[model_key]
+
+        for feature in top_features:
+            if feature in test_sample.columns:
+                feature_values = test_sample[feature]
+                for class_idx, target_class in enumerate(unique_classes):
+                    shap_values_for_class = shap_values_for_model[:, :, class_idx].values[:,
+                                            test_sample.columns.get_loc(feature)]
+
+                    # Store magnitude (mean absolute SHAP)
+                    magnitude = np.abs(shap_values_for_class).mean()
+                    magnitude_data[model_key][(feature, target_class)] = magnitude
+
+                    # Store direction (-1 for Negative, 0 for Mixed, 1 for Positive)
+                    try:
+                        corr, _ = pearsonr(feature_values, shap_values_for_class)
+                    except ValueError:
+                        corr = np.nan
+
+                    if pd.isna(corr) or abs(corr) < 0.1:
+                        direction = 0  # Mixed/No Trend
+                    elif corr > 0:
+                        direction = 1  # Positive
+                    else:
+                        direction = -1  # Negative
+                    directional_data[model_key][(feature, target_class)] = direction
+
+    # Create and save one heatmap per class
+    model_keys = list(all_test_samples.keys())
+
+    for target_class in unique_classes:
+        # Build the dataframes for this class's heatmap
+        dir_df = pd.DataFrame(index=top_features, columns=model_keys, dtype=float)
+        mag_df = pd.DataFrame(index=top_features, columns=model_keys, dtype=float)
+
+        for feature in top_features:
+            for model_key in model_keys:
+                dir_df.loc[feature, model_key] = directional_data.get(model_key, {}).get((feature, target_class))
+                mag_df.loc[feature, model_key] = magnitude_data.get(model_key, {}).get((feature, target_class))
+
+        plt.figure(figsize=(16, 12))
+
+        # Use the directional dataframe for coloring and the magnitude dataframe for annotations
+        sns.heatmap(
+            dir_df,  # This DataFrame contains -1, 0, 1 for direction
+            annot=mag_df,  # This DataFrame contains the actual SHAP values for annotation
+            fmt=".3f",
+            cmap='coolwarm',  # A diverging colormap (Blue -> White -> Red)
+            linewidths=.5,
+            linecolor='black',
+            cbar=False,
+            center=0  # This ensures 0 (Mixed) is the center color (white)
+        )
+
+        plt.title(f"Feature Impact Synthesis for Class {target_class}", fontsize=18, pad=20)
+        plt.xlabel("Model (Feature Set)", fontsize=12)
+        plt.ylabel("Top 15 Features", fontsize=12)
+        plt.xticks(rotation=45, ha='right')
+
+        heatmap_filename = f"feature_synthesis_heatmap_class_{target_class}.png"
+        save_path = os.path.join(output_dir, heatmap_filename)
+        try:
+            plt.savefig(save_path, bbox_inches='tight')
+            logging.info(f"Successfully saved synthesis heatmap to: {save_path}")
+        except Exception as e:
+            logging.error(f"Failed to save synthesis heatmap for class {target_class}. Error: {e}")
+
+        plt.show()
+        plt.close()
+
+
+# <<< --- END: REVISED SYNTHESIS HEATMAP FUNCTION --- >>>
 
 
 def main():
@@ -271,7 +430,6 @@ def main():
 
         logging.info("  Calculating SHAP values...")
 
-        # <<< --- START: **FIXED** SHAP EXPLAINER LOGIC --- >>>
         tree_model_names = [
             "RandomForestClassifier", "HistGradientBoostingClassifier",
             "XGBClassifier", "LGBMClassifier", "DecisionTreeClassifier"
@@ -280,7 +438,6 @@ def main():
         if model_instance.__class__.__name__ in tree_model_names:
             logging.info("  Using shap.TreeExplainer for optimized tree-based model.")
             explainer = shap.TreeExplainer(model_instance, background_data)
-            # Additivity check is disabled for TreeExplainer to prevent errors with some models like HistGradientBoostingClassifier
             shap_values = explainer(test_sample, check_additivity=False)
         else:
             if model_instance.__class__.__name__ == "GradientBoostingClassifier":
@@ -290,7 +447,6 @@ def main():
                 logging.info("  Using shap.Explainer for model-agnostic explanation.")
             explainer = shap.Explainer(model_instance.predict_proba, background_data)
             shap_values = explainer(test_sample)
-        # <<< --- END: **FIXED** SHAP EXPLAINER LOGIC --- >>>
 
         all_shap_values[safe_model_key] = shap_values
         all_test_samples[safe_model_key] = test_sample
@@ -331,33 +487,27 @@ def main():
     plt.close()
     logging.info("  Saved composite bar chart.")
 
-    # Call the heatmap function with the identified top features
     plot_feature_correlation_heatmap(X_train_sanitized, top_features_order, BASE_RESULTS_DIR)
 
-    # Step 5: Create and log individual beeswarm plots
-    logging.info("\n--- Generating SHAP Beeswarm Plots ---")
+    # Step 5: Create individual beeswarm plots (for reference/logging)
+    logging.info("\n--- Generating Individual SHAP Beeswarm Plots (for logs and temp storage) ---")
     for model_key, shap_values in all_shap_values.items():
         test_sample = all_test_samples[model_key]
         for i, target_class in enumerate(unique_classes):
-            logging.info(f"\n--- Data for Beeswarm Plot: {model_key}, Class {target_class} ---")
-
-            class_shap_values = shap_values[:, :, i]
-            mean_abs_shap_class = np.abs(class_shap_values.values).mean(axis=0)
-            class_importance_df = pd.DataFrame({
-                'Feature': test_sample.columns,
-                'Mean Absolute SHAP': mean_abs_shap_class
-            }).sort_values(by='Mean Absolute SHAP', ascending=False)
-            logging.info(f"\n{class_importance_df.head(N_TOP_FEATURES_TO_PLOT).to_string()}")
-
             plt.figure()
             shap.summary_plot(shap_values[:, :, i], test_sample, max_display=N_TOP_FEATURES_TO_PLOT, show=False)
             plt.title(f'SHAP Summary for Class {target_class}\n({model_key})', fontsize=14)
             plt.tight_layout()
             plt.savefig(os.path.join(BASE_RESULTS_DIR, f'shap_beeswarm_class_{target_class}_{model_key}.png'))
             plt.close()
-            logging.info(f"  Saved beeswarm plot for Class {target_class}, Model {model_key}.")
 
-    logging.info(f"\nSHAP analysis complete. Plots saved to '{BASE_RESULTS_DIR}/'")
+    plot_faceted_shap_summary(all_shap_values, all_test_samples, top_features_order, unique_classes, BASE_RESULTS_DIR)
+
+    # Generate the synthesis report heatmaps
+    generate_feature_synthesis_report(all_shap_values, all_test_samples, top_features_order, unique_classes,
+                                      BASE_RESULTS_DIR)
+
+    logging.info(f"\nSHAP analysis complete. Plots and reports saved to '{BASE_RESULTS_DIR}/'")
     logging.info(f"--- Finished Script: 7_shap.py ---")
 
 
