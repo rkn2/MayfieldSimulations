@@ -11,6 +11,8 @@ import sys
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+np.random.seed(0)
+
 # --- Logging Configuration Setup ---
 def setup_logging(log_file='pipeline.log'):
     """Sets up logging to both a file and the console."""
@@ -29,7 +31,7 @@ setup_logging()
 
 
 # --- Configuration ---
-SUBSAMPLE_DAMAGE_0 = 50  # Number of rows to keep for damage level 0.  Set to None to disable.
+SUBSAMPLE_DAMAGE_0 = None  # Number of rows to keep for damage level 0.  Set to None to disable.
 
 INPUT_CSV_PATH = 'cleaned_data_latlong.csv'  # Output from the previous cleaning script
 TARGET_COLUMN = 'degree_of_damage_u'
