@@ -32,9 +32,9 @@ except ImportError:
 try:
     import lightgbm as lgb
 
-    LGBM_AVAILABLE = True
+    LGB_AVAILABLE = True
 except ImportError:
-    LGBM_AVAILABLE = False
+    LGB_AVAILABLE = False
 try:
     import mord
 
@@ -77,6 +77,7 @@ N_SHAP_SAMPLES = 1000
 N_BACKGROUND_SAMPLES = 200
 N_TOP_FEATURES_TO_PLOT = 15
 CLUSTERING_LINKAGE_METHOD = 'average'
+RANDOM_STATE = 42
 
 
 # --- Helper Functions ---
@@ -142,6 +143,49 @@ def get_selected_features_by_clustering(original_df, distance_thresh, linkage_me
     return sorted(list(set(selected_representatives_list)))
 
 
+def plot_feature_correlation_heatmap(df, top_features, output_dir):
+    """
+    Calculates and plots a correlation heatmap for the specified top features.
+    """
+    logging.info("\n--- Generating Top Feature Correlation Heatmap ---")
+
+    # Select only the top features from the dataframe
+    top_features_df = df[top_features]
+
+    logging.info(f"Calculating associations for {len(top_features)} top features...")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        # Using dython's associations to handle mixed data types (numeric/categorical)
+        assoc_results = associations(top_features_df, nom_nom_assoc='cramer', compute_only=True, mark_columns=False)
+
+    correlation_matrix = assoc_results['corr'].fillna(0)
+
+    plt.figure(figsize=(16, 14))
+    sns.heatmap(
+        correlation_matrix,
+        annot=True,
+        fmt='.2f',
+        cmap='coolwarm',
+        linewidths=.5
+    )
+    plt.title('Cross-Correlation of Top SHAP Features', fontsize=18, pad=20)
+    plt.xticks(rotation=45, ha='right')
+    plt.yticks(rotation=0)
+    plt.tight_layout()
+
+    # Save the plot
+    heatmap_filename = "top_features_correlation_heatmap.png"
+    save_path = os.path.join(output_dir, heatmap_filename)
+    try:
+        plt.savefig(save_path)
+        logging.info(f"Correlation heatmap saved to {save_path}")
+    except Exception as e:
+        logging.error(f"Failed to save correlation heatmap. Error: {e}")
+
+    plt.show()
+    plt.close()
+
+
 def main():
     """Main function to run SHAP analysis on all high-performing model combinations."""
     logging.info(f"--- Starting Script: 7_shap.py (F1 > {PERFORMANCE_THRESHOLD}) ---")
@@ -169,18 +213,18 @@ def main():
 
     # Step 2: Set up all possible models and load all necessary data
     all_models = {
-        "LightGBM": lgb.LGBMClassifier(random_state=42, verbosity=-1) if LGBM_AVAILABLE else None,
-        "Gradient Boosting": GradientBoostingClassifier(random_state=42),
-        "XGBoost": xgb.XGBClassifier(random_state=42, eval_metric='mlogloss') if XGB_AVAILABLE else None,
-        "Hist Gradient Boosting": HistGradientBoostingClassifier(random_state=42),
-        "KNN": KNeighborsClassifier(),
-        "Logistic Regression": LogisticRegression(random_state=42, max_iter=2000),
-        "Random Forest": RandomForestClassifier(random_state=42),
-        "Decision Tree": DecisionTreeClassifier(random_state=42),
+        "LightGBM": lgb.LGBMClassifier(random_state=RANDOM_STATE, verbosity=-1) if LGB_AVAILABLE else None,
+        "Gradient Boosting": GradientBoostingClassifier(random_state=RANDOM_STATE),
+        "XGBoost": xgb.XGBClassifier(random_state=RANDOM_STATE, eval_metric='mlogloss') if XGB_AVAILABLE else None,
+        "Hist Gradient Boosting": HistGradientBoostingClassifier(random_state=RANDOM_STATE),
+        # "KNN": KNeighborsClassifier(), # User commented out, noting sensitivity
+        "Logistic Regression": LogisticRegression(random_state=RANDOM_STATE, max_iter=2000, solver='liblinear'),
+        "Random Forest": RandomForestClassifier(random_state=RANDOM_STATE),
+        "Decision Tree": DecisionTreeClassifier(random_state=RANDOM_STATE),
         "Ordinal LAD": mord.LAD() if MORD_AVAILABLE else None,
-        "Ordinal Ridge": mord.OrdinalRidge() if MORD_AVAILABLE else None
+        "Ordinal Ridge": mord.OrdinalRidge() if MORD_AVAILABLE else None,
+        "Ordinal Logistic (AT)": mord.LogisticAT() if MORD_AVAILABLE else None,
     }
-
     X_train_orig = load_data(TRAIN_X_PATH, "original X_train")
     y_train = load_data(TRAIN_Y_PATH, "original y_train")
     X_test_orig = load_data(TEST_X_PATH, "original X_test")
@@ -196,6 +240,11 @@ def main():
 
     for index, combo_row in high_performing_combinations.iterrows():
         model_name = combo_row['Model']
+
+        if model_name == "KNN":
+            logging.info(f"\nSkipping KNN model as it is disabled in the script.")
+            continue
+
         threshold = combo_row['Threshold Value']
         params_str = combo_row['Best Params']
 
@@ -221,8 +270,27 @@ def main():
         background_data = X_train_selected.sample(min(N_BACKGROUND_SAMPLES, len(X_train_selected)), random_state=42)
 
         logging.info("  Calculating SHAP values...")
-        explainer = shap.Explainer(model_instance.predict_proba, background_data)
-        shap_values = explainer(test_sample)
+
+        # <<< --- START: **FIXED** SHAP EXPLAINER LOGIC --- >>>
+        tree_model_names = [
+            "RandomForestClassifier", "HistGradientBoostingClassifier",
+            "XGBClassifier", "LGBMClassifier", "DecisionTreeClassifier"
+        ]
+
+        if model_instance.__class__.__name__ in tree_model_names:
+            logging.info("  Using shap.TreeExplainer for optimized tree-based model.")
+            explainer = shap.TreeExplainer(model_instance, background_data)
+            # Additivity check is disabled for TreeExplainer to prevent errors with some models like HistGradientBoostingClassifier
+            shap_values = explainer(test_sample, check_additivity=False)
+        else:
+            if model_instance.__class__.__name__ == "GradientBoostingClassifier":
+                logging.info(
+                    "  Model is GradientBoostingClassifier (multi-class); using model-agnostic shap.Explainer to avoid error.")
+            else:
+                logging.info("  Using shap.Explainer for model-agnostic explanation.")
+            explainer = shap.Explainer(model_instance.predict_proba, background_data)
+            shap_values = explainer(test_sample)
+        # <<< --- END: **FIXED** SHAP EXPLAINER LOGIC --- >>>
 
         all_shap_values[safe_model_key] = shap_values
         all_test_samples[safe_model_key] = test_sample
@@ -263,6 +331,9 @@ def main():
     plt.close()
     logging.info("  Saved composite bar chart.")
 
+    # Call the heatmap function with the identified top features
+    plot_feature_correlation_heatmap(X_train_sanitized, top_features_order, BASE_RESULTS_DIR)
+
     # Step 5: Create and log individual beeswarm plots
     logging.info("\n--- Generating SHAP Beeswarm Plots ---")
     for model_key, shap_values in all_shap_values.items():
@@ -292,4 +363,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
