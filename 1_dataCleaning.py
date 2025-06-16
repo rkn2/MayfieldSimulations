@@ -3,6 +3,7 @@ import numpy as np
 import logging
 import sys
 import os
+np.random.seed(0)
 
 # --- Logging Configuration Setup ---
 # This can be moved to a separate logging_config.py file if you prefer
