@@ -73,7 +73,7 @@ DETAILED_RESULTS_CSV = os.path.join(BASE_RESULTS_DIR, 'clustering_performance_de
 
 RANDOM_STATE = 42
 N_SPLITS_CV = 5
-CLUSTERING_THRESHOLDS_TO_TEST = [None, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
+CLUSTERING_THRESHOLDS_TO_TEST = [None]
 CLUSTERING_LINKAGE_METHOD = 'average'
 GRIDSEARCH_SCORING_METRIC = 'f1_weighted'
 
@@ -99,12 +99,12 @@ if MORD_AVAILABLE:
     })
 
 PARAM_GRIDS = {
-    "Logistic Regression": {'penalty': ['l1', 'l2'], 'C': [0.1, 1.0, 10.0]},
+    "Logistic Regression": {'penalty': ['l1', 'l2'], 'C': [0.01, 0.1, 1.0]},
     "Decision Tree": {'criterion': ['gini', 'entropy'], 'max_depth': [4, 6, 8, 10], 'min_samples_leaf': [5, 10, 15]},
-    "Random Forest": {'n_estimators': [100, 150], 'max_depth': [6, 8, 10], 'min_samples_leaf': [5, 10]},
-    "Gradient Boosting": {'n_estimators': [100], 'learning_rate': [0.05, 0.1], 'max_depth': [3, 4, 5]},
+    "Random Forest": {'n_estimators': [32, 64], 'max_depth': [3, 4, 5], 'min_samples_leaf': [5, 10]},
+    "Gradient Boosting": {'n_estimators': [64], 'learning_rate': [0.05, 0.1], 'max_depth': [3, 4, 5]},
     "Hist Gradient Boosting": {'learning_rate': [0.05, 0.1], 'max_leaf_nodes': [20, 31]},
-    "KNN": {'n_neighbors': [5, 7, 9], 'weights': ['uniform', 'distance']}
+    #"KNN": {'n_neighbors': [5, 7, 9], 'weights': ['uniform', 'distance']} # overly sensitive to parameter of inputs and i have too many inputs
 }
 if XGB_AVAILABLE: PARAM_GRIDS["XGBoost"] = {'n_estimators': [100], 'learning_rate': [0.05, 0.1], 'max_depth': [3, 4, 5]}
 if LGBM_AVAILABLE: PARAM_GRIDS["LightGBM"] = {'n_estimators': [100], 'learning_rate': [0.05, 0.1],
