@@ -105,5 +105,5 @@ PARAM_GRIDS = {
 VISUALIZATION = {
     'main_palette': 'viridis',  # A good choice for sequential data (e.g., bar charts)
     'diverging_palette': 'coolwarm', # Good for heatmaps or SHAP plots where values diverge from a center
-    'plot_style': 'seaborn-v0_8-whitegrid' # A clean, professional plot style
+    'plot_style': 'seaborn-v0_8-white' # A clean, professional plot style
 }
