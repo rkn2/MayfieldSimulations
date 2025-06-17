@@ -99,3 +99,11 @@ PARAM_GRIDS = {
     "Ordinal Ridge": {'alpha': [0.1, 1.0, 10.0]},
     "Ordinal LAD": {'C': [0.1, 1.0, 10.0]}
 }
+
+# --- VISUALIZATION ---
+# Define a consistent color scheme for all plots
+VISUALIZATION = {
+    'main_palette': 'viridis',  # A good choice for sequential data (e.g., bar charts)
+    'diverging_palette': 'coolwarm', # Good for heatmaps or SHAP plots where values diverge from a center
+    'plot_style': 'seaborn-v0_8-whitegrid' # A clean, professional plot style
+}
