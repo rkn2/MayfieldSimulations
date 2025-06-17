@@ -6,7 +6,7 @@ This repository implements a data analysis pipeline to process, analyze, and rep
 rfe should be run early in the process so i can figure out how many feature to cut it at
 i decided not to cluster here based on some analysis of the outputs and thinking about RFE first this will vary
 
-coefficient interp looks at the best model from 4. 
+THIS NEEDS TO BE REGRESSION NOT CLASSIFICATION PROBABLY BC OF HOW DIFFERENCE WORKS UNLESS I WANT TO JUST DO CORRECT, UNDERPREDICT, OVERPREDICT... THINK ABOUT IT
 
 ### Pipeline Details
 

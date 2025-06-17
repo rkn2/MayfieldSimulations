@@ -9,3 +9,5 @@ lightgbm
 mord
 fpdf2
 Pillow
+imbalanced-learn
+shap

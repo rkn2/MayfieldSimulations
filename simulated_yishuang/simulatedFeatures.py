@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 # Replace 'your_file.csv' with the actual path to your file
 # Replace ',' with the correct delimiter if it's not a comma
-df = pd.read_csv('feature_importance_sims.csv', delimiter=',', encoding='latin-1')
+df = pd.read_csv('../feature_importance_sims.csv', delimiter=',', encoding='latin-1')
 #
 ## REMOVING COLUMNS
 ## VARIATION ~~~~~~~~~~~~~~~~~~~~~~~~~~~~

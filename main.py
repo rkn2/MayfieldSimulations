@@ -23,9 +23,12 @@ def main():
     scripts_to_run = [
         '1_dataCleaning.py',
         '2_dataPreprocessing.py',
+        'edaSimDif.py',
+        'featureImportance.py',
         '4_modeling.py',
-        '6_deltaAccuracy.py',
-        '7_shap.py',
+        'shap_interpretation.py',
+        #'6_deltaAccuracy.py', # not meaningful bc low accuracy models
+        #'7_shap.py', # not meaningful bc low accuracy models
         '8_generate_report.py'
     ]
 

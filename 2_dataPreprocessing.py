@@ -89,7 +89,7 @@ def main():
     # 5. Split Data
     logging.info("\nStep 5: Splitting data into training and testing sets...")
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=config.TEST_SIZE,
-                                                        random_state=config.RANDOM_STATE, stratify=y)
+                                                        random_state=config.RANDOM_STATE)
 
     # 6. Preprocess Features
     numeric_features = X_train.select_dtypes(include=np.number).columns.tolist()

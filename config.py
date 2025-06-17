@@ -1,13 +1,10 @@
-# config.py
-
 import os
-from sklearn.linear_model import LogisticRegression
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, HistGradientBoostingClassifier
-from sklearn.neighbors import KNeighborsClassifier
+from sklearn.linear_model import LinearRegression, Ridge, Lasso, ElasticNet
+from sklearn.svm import SVR
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor, HistGradientBoostingRegressor
 import xgboost as xgb
 import lightgbm as lgb
-import mord
 
 # --- GENERAL ---
 RANDOM_STATE = 42
@@ -17,8 +14,8 @@ DATA_DIR = 'processed_ml_data'
 BASE_RESULTS_DIR = 'clustering_performance_results'
 SHAP_RESULTS_DIR = 'shap_results_top_performers'
 REPORT_DIR = 'reports'
-INPUT_CSV_PATH = 'QuadState_Tornado_DataInputv2.csv'
-CLEANED_CSV_PATH = 'cleaned_data_latlong.csv'
+INPUT_CSV_PATH = 'feature_importance_sims.csv' # Using the sims data
+CLEANED_CSV_PATH = 'cleaned_data.csv'
 PIPELINE_LOG_PATH = 'pipeline.log'
 REPORT_FILENAME = 'pipeline_visual_report.pdf'
 DETAILED_RESULTS_CSV = os.path.join(BASE_RESULTS_DIR, 'clustering_performance_detailed_results.csv')
@@ -30,7 +27,7 @@ Y_TEST_PATH = os.path.join(DATA_DIR, 'y_test.pkl')
 PREPROCESSOR_PATH = os.path.join(DATA_DIR, 'preprocessor.pkl')
 
 # --- DATA CLEANING ---
-TARGET_COLUMN_FOR_NAN_DROP = 'degree_of_damage_u'
+TARGET_COLUMN_FOR_NAN_DROP = 'Difference'
 LOW_VARIATION_THRESHOLD = 1
 KEYWORDS_TO_DROP = ['photos', 'details', 'prop_', '_unc']
 SPECIFIC_COLUMNS_TO_DROP = [
@@ -47,63 +44,81 @@ COLUMNS_FOR_VALUE_REPLACEMENT = {
 }
 
 # --- PREPROCESSING ---
-TARGET_COLUMN = 'degree_of_damage_u'
+TARGET_COLUMN = 'Difference'
 TEST_SIZE = 0.2
-REDUCE_CLASSES_STRATEGY = 'B'
+REDUCE_CLASSES_STRATEGY = None # Set to None for regression
+BALANCING_METHOD = None # Set to None for regression
+PERFORM_RFE = True
+N_FEATURES_TO_SELECT = 36 # Updated based on your RFE analysis
+
+# This dictionary is a remnant from the classification setup.
+# It's included here to prevent an AttributeError in 2_dataPreprocessing.py,
+# but it will not be used as long as REDUCE_CLASSES_STRATEGY is None.
 CLASS_MAPPINGS = {
     'A': {0: 0, 1: 1, 2: 1, 3: 1, 4: 2, 5: 3},
     'B': {0: 0, 1: 1, 2: 1, 3: 1, 4: 1, 5: 2}
 }
-BALANCING_METHOD = 'SMOTE'
-PERFORM_RFE = True
-N_FEATURES_TO_SELECT = 50
+
+# This list contains features to remove from the feature set (X)
+# because they "leak" information about the outcome or are directly
+# related to the simulation outputs we are trying to predict.
 KEYWORDS_TO_REMOVE_FROM_X = [
-    'damage', 'status_u', 'exist', 'demolish', 'failure', 'after'
+    # Leaky features (know the outcome)
+    'demolishing_year',
+    'demoshed_by_2023',
+    'buidling_use_after_tornado',
+    'buidling_use_plan_after_tornado',
+
+    # Simulation/Target-related outputs
+    'simulated_damage',
+    'estimated',
+
+    # Other general keywords that might relate to damage assessment post-event
+    'damage',
+    'status_u',
+    'exist',
+    'demolish',
+    'failure',
+    'after'
 ]
 
-# --- MODELING & EVALUATION ---
+# --- MODELING & EVALUATION (Regression) ---
 CLUSTERING_THRESHOLDS_TO_TEST = [None]
 CLUSTERING_LINKAGE_METHOD = 'average'
 N_SPLITS_CV = 5
-GRIDSEARCH_SCORING_METRIC = 'f1_weighted'
-PERFORMANCE_THRESHOLD_FOR_PLOT = 0.8
-N_PERMUTATION_REPEATS = 100  # Added this line
-P_VALUE_THRESHOLD = 0.05    # Added this line
-METRICS_TO_EVALUATE = {
-    'accuracy': 'accuracy', 'f1_weighted': 'f1_weighted', 'f1_macro': 'f1_macro',
-    'precision_weighted': 'precision_weighted', 'recall_weighted': 'recall_weighted',
-}
+GRIDSEARCH_SCORING_METRIC = 'neg_mean_squared_error'
+PERFORMANCE_THRESHOLD_FOR_PLOT = 0
 
 MODELS_TO_BENCHMARK = {
-    "Logistic Regression": LogisticRegression(random_state=RANDOM_STATE, max_iter=2000, solver='liblinear'),
-    "Decision Tree": DecisionTreeClassifier(random_state=RANDOM_STATE),
-    "Random Forest": RandomForestClassifier(random_state=RANDOM_STATE, n_jobs=-1),
-    "Gradient Boosting": GradientBoostingClassifier(random_state=RANDOM_STATE),
-    "Hist Gradient Boosting": HistGradientBoostingClassifier(random_state=RANDOM_STATE),
-    "XGBoost": xgb.XGBClassifier(random_state=RANDOM_STATE, eval_metric='mlogloss'),
-    "LightGBM": lgb.LGBMClassifier(random_state=RANDOM_STATE, verbosity=-1),
-    "Ordinal Logistic (AT)": mord.LogisticAT(),
-    "Ordinal Ridge": mord.OrdinalRidge(),
-    "Ordinal LAD": mord.LAD()
+    "Linear Regression": LinearRegression(),
+    "Ridge": Ridge(random_state=RANDOM_STATE),
+    "Lasso": Lasso(random_state=RANDOM_STATE),
+    "ElasticNet": ElasticNet(random_state=RANDOM_STATE),
+    "SVR": SVR(),
+    "Decision Tree": DecisionTreeRegressor(random_state=RANDOM_STATE),
+    "Random Forest": RandomForestRegressor(random_state=RANDOM_STATE, n_jobs=-1),
+    "Gradient Boosting": GradientBoostingRegressor(random_state=RANDOM_STATE),
+    "Hist Gradient Boosting": HistGradientBoostingRegressor(random_state=RANDOM_STATE),
+    "XGBoost": xgb.XGBRegressor(random_state=RANDOM_STATE),
+    "LightGBM": lgb.LGBMRegressor(random_state=RANDOM_STATE, verbosity=-1),
 }
 
 PARAM_GRIDS = {
-    "Logistic Regression": {'penalty': ['l1', 'l2'], 'C': [0.1, 1.0, 10.0]},
-    "Decision Tree": {'criterion': ['gini', 'entropy'], 'max_depth': [4, 6, 8], 'min_samples_leaf': [10, 15]},
+    "Ridge": {'alpha': [0.1, 1.0, 10.0]},
+    "Lasso": {'alpha': [0.1, 1.0, 10.0]},
+    "ElasticNet": {'alpha': [0.1, 1.0, 10.0], 'l1_ratio': [0.1, 0.5, 0.9]},
+    "SVR": {'kernel': ['linear', 'rbf'], 'C': [0.1, 1, 10]},
+    "Decision Tree": {'max_depth': [4, 6, 8], 'min_samples_leaf': [10, 15]},
     "Random Forest": {'n_estimators': [100, 150], 'max_depth': [6, 8], 'min_samples_leaf': [5, 10]},
     "Gradient Boosting": {'n_estimators': [100], 'learning_rate': [0.05, 0.1], 'max_depth': [3, 4, 5]},
     "Hist Gradient Boosting": {'learning_rate': [0.05, 0.1], 'max_leaf_nodes': [20, 31]},
     "XGBoost": {'n_estimators': [100], 'learning_rate': [0.05, 0.1], 'max_depth': [3, 4, 5]},
     "LightGBM": {'n_estimators': [100], 'learning_rate': [0.05, 0.1], 'num_leaves': [15, 25]},
-    "Ordinal Logistic (AT)": {'alpha': [0.1, 1.0, 10.0]},
-    "Ordinal Ridge": {'alpha': [0.1, 1.0, 10.0]},
-    "Ordinal LAD": {'C': [0.1, 1.0, 10.0]}
 }
 
 # --- VISUALIZATION ---
-# Define a consistent color scheme for all plots
 VISUALIZATION = {
-    'main_palette': 'viridis',  # A good choice for sequential data (e.g., bar charts)
-    'diverging_palette': 'coolwarm', # Good for heatmaps or SHAP plots where values diverge from a center
-    'plot_style': 'seaborn-v0_8-white' # A clean, professional plot style
+    'main_palette': 'viridis',
+    'diverging_palette': 'coolwarm',
+    'plot_style': 'seaborn-v0_8-white'
 }

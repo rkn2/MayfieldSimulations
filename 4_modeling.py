@@ -14,11 +14,8 @@ import config
 from dython.nominal import associations
 from scipy.cluster import hierarchy
 from scipy.spatial.distance import squareform
-from sklearn.metrics import (
-    classification_report, confusion_matrix, ConfusionMatrixDisplay, f1_score,
-    precision_score, recall_score, accuracy_score
-)
-from sklearn.model_selection import KFold, cross_validate, GridSearchCV
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+from sklearn.model_selection import KFold, GridSearchCV
 
 
 def setup_logging(log_file=config.PIPELINE_LOG_PATH):
@@ -69,7 +66,7 @@ def get_selected_features_by_clustering(original_df, distance_thresh, linkage_me
 
 
 def main():
-    logging.info(f"--- Starting Script: 4_modeling.py ---")
+    logging.info(f"--- Starting Script: 4_modeling.py (Regression Version) ---")
     os.makedirs(config.BASE_RESULTS_DIR, exist_ok=True)
 
     X_train = load_data(config.TRAIN_X_PATH, "training features")
@@ -113,18 +110,11 @@ def main():
                 }
 
                 y_pred_test = best_estimator.predict(X_test_fs)
-                for metric_name, scorer_name in config.METRICS_TO_EVALUATE.items():
-                    if 'f1' in metric_name:
-                        score = f1_score(y_test_ravel, y_pred_test, average=metric_name.split('_')[-1], zero_division=0)
-                    elif 'precision' in metric_name:
-                        score = precision_score(y_test_ravel, y_pred_test, average=metric_name.split('_')[-1],
-                                                zero_division=0)
-                    elif 'recall' in metric_name:
-                        score = recall_score(y_test_ravel, y_pred_test, average=metric_name.split('_')[-1],
-                                             zero_division=0)
-                    else:
-                        score = accuracy_score(y_test_ravel, y_pred_test)
-                    result_row[f"Test {metric_name.replace('_', ' ').title()}"] = score
+
+                # Regression metrics
+                result_row['Test R2 Score'] = r2_score(y_test_ravel, y_pred_test)
+                result_row['Test MSE'] = mean_squared_error(y_test_ravel, y_pred_test)
+                result_row['Test MAE'] = mean_absolute_error(y_test_ravel, y_pred_test)
 
                 all_results.append(result_row)
 
@@ -139,10 +129,29 @@ def main():
     logging.info(f"\nComprehensive performance results saved to: {config.DETAILED_RESULTS_CSV}")
     logging.info(f"Saved dictionary of best estimators to: {config.BEST_ESTIMATORS_PATH}")
 
-    # --- Plot Confusion Matrices for Top 5 Models ---
-    logging.info("\n--- Generating Confusion Matrices for Top 5 Models ---")
+    # --- Print Console Report ---
+    logging.info("\n--- Regression Model Performance Report ---")
+    print(all_results_df.to_string())
+
+    # --- Plot Model Comparison Bar Chart ---
+    logging.info("\n--- Generating Model Comparison Plot ---")
+    plt.figure(figsize=(12, 8))
+    sns.barplot(x='Test R2 Score', y='Model', data=all_results_df.sort_values('Test R2 Score', ascending=False),
+                palette='viridis')
+    plt.title('Model Comparison by R2 Score')
+    plt.xlabel('R2 Score')
+    plt.ylabel('Model')
+    plt.grid(True)
+    comparison_plot_filename = "model_comparison_r2_score.png"
+    plt.savefig(os.path.join(config.BASE_RESULTS_DIR, comparison_plot_filename))
+    plt.show()  # Display the plot
+    plt.close()
+    logging.info(f"  Saved model comparison plot to {comparison_plot_filename}")
+
+    # --- Plot Actual vs. Predicted for Top 5 Models ---
+    logging.info("\n--- Generating Actual vs. Predicted Plots for Top 5 Models ---")
     plt.style.use(config.VISUALIZATION['plot_style'])
-    top_5 = all_results_df.sort_values(by='Test F1 Weighted', ascending=False).head(5)
+    top_5 = all_results_df.sort_values(by='Test R2 Score', ascending=False).head(5)
 
     for _, row in top_5.iterrows():
         combo_key = f"{row['Model']}_{row['Feature Set Name']}"
@@ -153,16 +162,20 @@ def main():
         X_test_for_pred = X_test.reindex(columns=selected_features_for_pred, fill_value=0)
         y_pred = estimator.predict(X_test_for_pred)
 
-        cm = confusion_matrix(y_test_ravel, y_pred)
-        disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=estimator.classes_)
+        plt.figure(figsize=(8, 8))
+        sns.scatterplot(x=y_test_ravel, y=y_pred, alpha=0.5)
+        plt.plot([min(y_test_ravel), max(y_test_ravel)], [min(y_test_ravel), max(y_test_ravel)], color='red',
+                 linestyle='--')
+        plt.title(f"Actual vs. Predicted for {combo_key}")
+        plt.xlabel("Actual Values")
+        plt.ylabel("Predicted Values")
+        plt.grid(True)
 
-        fig, ax = plt.subplots(figsize=(8, 6))
-        disp.plot(ax=ax, cmap='Blues')
-        plt.title(f"Confusion Matrix for {combo_key}")
-        cm_filename = f"confusion_matrix_{combo_key.replace(' ', '_').replace('(', '').replace(')', '')}.png"
-        plt.savefig(os.path.join(config.BASE_RESULTS_DIR, cm_filename))
-        plt.close(fig)
-        logging.info(f"  Saved confusion matrix for {combo_key}")
+        plot_filename = f"actual_vs_predicted_{combo_key.replace(' ', '_').replace('(', '').replace(')', '')}.png"
+        plt.savefig(os.path.join(config.BASE_RESULTS_DIR, plot_filename))
+        plt.show()  # Display the plot
+        plt.close()
+        logging.info(f"  Saved plot for {combo_key}")
 
     logging.info("\n--- Script Finished ---")
 
